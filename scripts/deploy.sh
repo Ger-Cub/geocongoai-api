@@ -8,6 +8,10 @@ REGION="europe-west4" # Region avec support GPU (Pays-Bas)
 IMAGE_NAME="gcr.io/$PROJECT_ID/$SERVICE_NAME"
 BUCKET_NAME="geocongoai-models-storage"
 
+# Initialisation du projet (Crucial pour Cloud Shell)
+echo "Configuration du projet $PROJECT_ID..."
+gcloud config set project $PROJECT_ID
+
 # 2. Create the bucket for models
 echo "Creating GCS bucket gs://$BUCKET_NAME..."
 gsutil mb -p $PROJECT_ID -l $REGION gs://$BUCKET_NAME || echo "Bucket already exists"
