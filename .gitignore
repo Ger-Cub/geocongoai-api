@@ -1,0 +1,22 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+venv/
+.env
+
+# Project specific
+models/
+data/
+*.pt
+*.pth
+*.tif
+*.geotiff
+.dockerignore
+.gcloudignore
+
+# OS
+.DS_Store
+.idea/
+.vscode/
+.gemini/
