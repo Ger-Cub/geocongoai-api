@@ -34,7 +34,7 @@ gcloud beta run deploy $SERVICE_NAME \
     --gpu 1 \
     --gpu-type nvidia-l4 \
     --execution-environment gen2 \
-    --startup-cpu-boost \
+    --cpu-boost \
     --timeout 600 \
     --add-volume=name=models,type=cloud-storage,bucket=$BUCKET_NAME \
     --add-volume-mount=volume=models,mount-path=/app/models \
