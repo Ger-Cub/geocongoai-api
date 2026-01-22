@@ -1,10 +1,17 @@
 import torch
 import os
 import rasterio
+import tempfile
+import uuid
+import shutil
 from typing import List
 from pystac_client import Client
-import stackstac
 import numpy as np
+from odc.stac import stac_load
+
+# Importation de l'architecture Prithvi depuis transformers
+from transformers import AutoImageProcessor, MaskedAutoencoderForViT, SegformerForSemanticSegmentation
+
 
 from ultralytics import SAM
 
@@ -14,10 +21,20 @@ class AIService:
         self.models_dir = "/app/models"
         self.prithvi_path = os.path.join(self.models_dir, "prithvi/Prithvi_EO_V2_600M_TL.pt")
         self.sam2_path = os.path.join(self.models_dir, "sam2/sam2_l.pt")
+        self.landcover_path = os.path.join(self.models_dir, "landcover/segformer-b0-finetuned-ade-512-512")
         
-        # Load Prithvi model (Placeholder for architecture)
+        # --- Chargement du modèle Prithvi ---
+        self.prithvi_model = None
+        self.prithvi_processor = None
         if os.path.exists(self.prithvi_path):
-            print(f"Prithvi model found at {self.prithvi_path}")
+            try:
+                print(f"Loading Prithvi model from {self.prithvi_path}...")
+                self.prithvi_processor = AutoImageProcessor.from_pretrained("HuggingFaceM4/prithvi-eo-v2")
+                self.prithvi_model = MaskedAutoencoderForViT.from_pretrained(self.prithvi_path, ignore_mismatched_sizes=True)
+                self.prithvi_model.to(self.device)
+                print("Prithvi model loaded successfully.")
+            except Exception as e:
+                print(f"⚠️ Error loading Prithvi model: {e}")
         else:
             print(f"Warning: Prithvi model NOT found at {self.prithvi_path}")
 
@@ -33,6 +50,21 @@ class AIService:
                 print("Continuing with AI Service in Simulation Mode for SAM 2.")
         else:
             print(f"Warning: SAM 2 model NOT found at {self.sam2_path}")
+
+        # --- Chargement du modèle Landcover (Exemple avec SegFormer) ---
+        self.landcover_model = None
+        self.landcover_processor = None
+        if os.path.exists(self.landcover_path):
+            try:
+                print(f"Loading Landcover model from {self.landcover_path}...")
+                self.landcover_processor = AutoImageProcessor.from_pretrained(self.landcover_path)
+                self.landcover_model = SegformerForSemanticSegmentation.from_pretrained(self.landcover_path)
+                self.landcover_model.to(self.device)
+                print("Landcover model loaded successfully.")
+            except Exception as e:
+                print(f"⚠️ Error loading Landcover model: {e}")
+        else:
+            print(f"Warning: Landcover model NOT found at {self.landcover_path}")
 
         print(f"AI Service initialized on {self.device}")
 
@@ -60,17 +92,27 @@ class AIService:
         item = items[0]
         print(f"Found best image: {item.id} with {item.properties['eo:cloud_cover']}% cloud cover")
         
-        # Mocking the download path
-        download_path = f"/app/data/sentinel_{item.id}.tif"
+        # Création d'un chemin de fichier unique dans le répertoire temporaire fourni
+        temp_dir = tempfile.mkdtemp(prefix="geocongo_")
+        download_path = os.path.join(temp_dir, f"sentinel_{item.id}.tif")
         
-        # In production: 
-        # import stackstac
-        # stackstac.stack(item).to_rasterio(download_path)
+        # Téléchargement optimisé avec odc-stac pour un chargement parallèle
+        bands = ['blue', 'green', 'red', 'nir08', 'swir16', 'swir22']
         
-        with open(download_path, "w") as f:
-            f.write("mock satellite data")
-            
-        return download_path
+        print(f"Loading bands {bands} using odc-stac...")
+        ds = stac_load(
+            [item],
+            bands=bands,
+            bbox=bbox,
+            resolution=10,
+            chunks={'x': 2048, 'y': 2048} # Active le traitement parallèle par blocs
+        )
+        
+        # Sauvegarder le dataset chargé en tant que GeoTIFF
+        ds.to_array(dim="bands").rio.to_raster(download_path, tiled=True, lock=True)
+        print(f"Data saved to {download_path}")
+
+        return download_path, temp_dir
 
     async def run_inference(self, bbox: List[float], analysis_type: str) -> str:
         """
@@ -79,25 +121,109 @@ class AIService:
         2. Runs Prithvi-EO-2.0 or SAM 2 (Ultralytics).
         3. Returns the path to the resulting raster.
         """
-        # 1. Fetch satellite data
-        sat_data_path = await self.fetch_satellite_data(bbox)
-        
-        # 2. Inference logic
-        output_raster = f"/app/data/inference_{analysis_type}.tif"
-        
-        print(f"Running {analysis_type} inference on {sat_data_path}...")
-        
-        if analysis_type == 'failles' and self.sam_model:
-            # Example: Using SAM 2 for fault segmentation
-            # results = self.sam_model.predict(sat_data_path, device=self.device)
-            # results[0].save(output_raster)
-            pass
-        elif analysis_type == 'mines':
-            # Example: Using Prithvi for mining detection
-            pass
-        
-        # Mocking the output for now
-        with open(output_raster, "w") as f:
-            f.write(f"dummy raster data from {analysis_type} model")
+        sat_data_path, temp_dir = None, None
+        try:
+            # 1. Fetch satellite data into a temporary directory
+            sat_data_path, temp_dir = await self.fetch_satellite_data(bbox)
             
-        return output_raster
+            # 2. Inference logic
+            output_raster = os.path.join(temp_dir, f"inference_{analysis_type}_{uuid.uuid4()}.tif")
+            
+            print(f"Running {analysis_type} inference on {sat_data_path}...")
+            
+            # Logique d'inférence pour les différents types d'analyse
+            if analysis_type in ['minéraux', 'mines'] and self.prithvi_model:
+                print("Using Prithvi model for inference...")
+                with rasterio.open(sat_data_path) as src:
+                    image_array = src.read() # Lit les bandes dans un tableau numpy. Shape: (bands, height, width)
+                    src_profile = src.profile # Sauvegarde les métadonnées géo (CRS, transform, etc.)
+                
+                # Prétraitement de l'image pour le modèle
+                inputs = self.prithvi_processor(images=image_array, return_tensors="pt").to(self.device)
+                
+                # Exécution de l'inférence
+                with torch.no_grad():
+                    outputs = self.prithvi_model(**inputs)
+                
+                # --- Début du Post-Traitement ---
+                print("Inference complete. Post-processing the output...")
+                
+                classification_map = torch.argmax(outputs.logits, dim=1).squeeze()
+                classification_map_np = classification_map.cpu().numpy().astype(rasterio.uint8)
+                
+                dst_profile = src_profile.copy()
+                dst_profile.update({
+                    'count': 1,
+                    'dtype': 'uint8',
+                    'compress': 'lzw'
+                })
+                
+                with rasterio.open(output_raster, 'w', **dst_profile) as dst:
+                    dst.write(classification_map_np, 1)
+                print(f"Classification raster saved to {output_raster}")
+
+            elif analysis_type == 'failles' and self.sam_model:
+                print("Using SAM model for inference...")
+                with rasterio.open(sat_data_path) as src:
+                    src_profile = src.profile # Sauvegarde les métadonnées géo
+
+                # Exécuter la prédiction SAM. 'predict' génère automatiquement des masques.
+                results = self.sam_model.predict(sat_data_path, device=self.device)
+                
+                if not results or not results[0].masks:
+                    raise Exception("SAM model did not detect any features (faults).")
+
+                # Fusionner tous les masques détectés en une seule carte binaire
+                # results[0].masks.data est un tenseur (N, H, W) où N est le nombre de masques
+                merged_mask = torch.sum(results[0].masks.data, dim=0).clamp(0, 1)
+                
+                # Convertir en NumPy et préparer pour la sauvegarde
+                mask_np = merged_mask.cpu().numpy().astype(rasterio.uint8)
+                
+                dst_profile = src_profile.copy()
+                dst_profile.update({'count': 1, 'dtype': 'uint8', 'compress': 'lzw'})
+                
+                with rasterio.open(output_raster, 'w', **dst_profile) as dst:
+                    dst.write(mask_np, 1)
+                print(f"Fault detection raster saved to {output_raster}")
+
+            elif analysis_type == 'landcover' and self.landcover_model:
+                print("Using Landcover (SegFormer) model for inference...")
+                # Les modèles de segmentation classiques utilisent souvent des images RGB
+                # Nous allons lire uniquement les 3 premières bandes (Red, Green, Blue)
+                with rasterio.open(sat_data_path) as src:
+                    image_array = src.read([1, 2, 3]) # [R, G, B]
+                    src_profile = src.profile
+
+                # Prétraitement et inférence
+                inputs = self.landcover_processor(images=image_array, return_tensors="pt").to(self.device)
+                with torch.no_grad():
+                    outputs = self.landcover_model(**inputs)
+                
+                # Post-traitement: argmax sur les logits pour obtenir la carte de classification
+                logits = outputs.logits.cpu()
+                # Redimensionner la sortie à la taille de l'image originale
+                upsampled_logits = torch.nn.functional.interpolate(logits, size=image_array.shape[1:], mode="bilinear", align_corners=False)
+                classification_map = upsampled_logits.argmax(dim=1).squeeze()
+                classification_map_np = classification_map.numpy().astype(rasterio.uint8)
+
+                # Sauvegarder le raster de classification
+                dst_profile.update({'count': 1, 'dtype': 'uint8', 'compress': 'lzw'})
+                with rasterio.open(output_raster, 'w', **dst_profile) as dst:
+                    dst.write(classification_map_np, 1)
+                print(f"Landcover classification raster saved to {output_raster}")
+
+            else:
+                # Si aucun modèle n'est disponible ou si le type d'analyse n'est pas géré
+                raise NotImplementedError(f"Analysis type '{analysis_type}' is not implemented or its model is not loaded.")
+                
+            return output_raster
+        except Exception as e:
+            print(f"❌ An error occurred during AI inference: {e}")
+            # Remonter l'exception pour que le handler de FastAPI la capture
+            raise e
+        finally:
+            # Nettoyage du répertoire temporaire et de son contenu
+            if temp_dir and os.path.exists(temp_dir):
+                print(f"Cleaning up temporary directory: {temp_dir}")
+                shutil.rmtree(temp_dir)

@@ -3,6 +3,7 @@ import os
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Depends, HTTPException
 from pydantic import BaseModel
+from enum import Enum
 from typing import List, Optional
 
 # --- QGIS Initialization ---
@@ -21,9 +22,16 @@ from app.core.security import get_api_key
 from app.services.ai_service import AIService
 from app.services.geo_service import GeoService
 
+class AnalysisType(str, Enum):
+    FAILLES = "failles"
+    MINES = "mines"
+    MINERAUX = "minéraux"
+    GLISSEMENTS_DE_TERRAIN = "glissements de terrain"
+    LANDCOVER = "landcover" # Exemple: déforestation, eau, zones urbaines
+
 class AnalysisRequest(BaseModel):
     bbox: List[float] # [minx, miny, maxx, maxy]
-    analysis_type: str # 'failles', 'mines', 'minéraux'
+    analysis_type: AnalysisType
     crs: Optional[str] = "EPSG:4326"
 
 # Services will be initialized lazily or during startup
@@ -57,24 +65,25 @@ async def analyze(request: AnalysisRequest):
     Execute complex geological analysis using Prithvi and SAM 2 models.
     The results are processed through QGIS for vectorization.
     """
-    if request.analysis_type not in ['failles', 'mines', 'minéraux']:
-        raise HTTPException(status_code=400, detail="Invalid analysis type")
-    
     try:
         # 1. Inference with AI Models (Prithvi/SAM 2)
-        raster_path = await ai_service.run_inference(request.bbox, request.analysis_type)
+        raster_path = await ai_service.run_inference(request.bbox, request.analysis_type.value)
         
         # 2. Vectorization with QGIS (processing.run)
         vector_path = geo_service.vectorize_raster(raster_path)
         
-        # 3. Return GeoJSON result
+        # 3. Read vector data as GeoJSON
         result = geo_service.read_vector_as_geojson(vector_path)
+
+        # 4. Generate a PNG preview of the raster
+        preview_png_base64 = geo_service.create_raster_preview(raster_path)
         
         return {
             "status": "success",
             "type": request.analysis_type,
             "bbox": request.bbox,
-            "data": result
+            "data": result,
+            "preview_png_base64": preview_png_base64
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

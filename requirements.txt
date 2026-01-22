@@ -15,6 +15,8 @@ pydantic-settings==2.2.1
 python-multipart==0.0.9
 huggingface_hub
 timelines
+matplotlib
+aiocache==0.12.0
 # Note: geoai might be a custom library or specific repo, 
 # assuming 'geoai' refers to standard tools or specific repo installation
 # If it's a specific package like 'geowombat' or similar, we'd add it here.
