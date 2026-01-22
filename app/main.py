@@ -34,6 +34,10 @@ class AnalysisRequest(BaseModel):
     analysis_type: AnalysisType
     crs: Optional[str] = "EPSG:4326"
 
+class CacheFileInfo(BaseModel):
+    filename: str
+    size_mb: float
+
 # Services will be initialized lazily or during startup
 ai_service: Optional[AIService] = None
 geo_service: Optional[GeoService] = None
@@ -73,10 +77,10 @@ async def analyze(request: AnalysisRequest):
         vector_path = geo_service.vectorize_raster(raster_path)
         
         # 3. Read vector data as GeoJSON
-        result = geo_service.read_vector_as_geojson(vector_path)
+        result = geo_service.read_vector_as_geojson(vector_path, analysis_type=request.analysis_type.value)
 
         # 4. Generate a PNG preview of the raster
-        preview_png_base64 = geo_service.create_raster_preview(raster_path)
+        preview_png_base64 = geo_service.create_raster_preview(raster_path, analysis_type=request.analysis_type.value)
         
         return {
             "status": "success",
@@ -104,3 +108,24 @@ async def health():
         "qgis": "initialized" if qgs else "simulated",
         "device": ai_service.device if ai_service else "unknown"
     }
+
+@app.get("/admin/cache-info", dependencies=[Depends(get_api_key)], response_model=List[CacheFileInfo])
+async def get_cache_info():
+    """
+    Lists files in the satellite cache, their size, and the total cache size.
+    """
+    if not ai_service:
+        raise HTTPException(status_code=503, detail="Service not initialized")
+
+    cache_files = []
+    total_size_bytes = 0
+    try:
+        for filename in os.listdir(ai_service.satellite_cache_dir):
+            file_path = os.path.join(ai_service.satellite_cache_dir, filename)
+            if os.path.isfile(file_path):
+                size_bytes = os.path.getsize(file_path)
+                total_size_bytes += size_bytes
+                cache_files.append(CacheFileInfo(filename=filename, size_mb=round(size_bytes / (1024 * 1024), 4)))
+        return cache_files
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to read cache directory: {e}")
