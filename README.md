@@ -29,9 +29,18 @@ Toutes les requêtes doivent inclure la clé API dans le header :
 #### 2. État du système
 **GET** `/health` : Vérifie l'état des modèles et de QGIS.
 
+#### 3. Consulter les Résultats
+**GET** `/results`
+
+Permet de récupérer les résultats d'analyses déjà stockés en base de données.
+
+**Paramètres de requête (optionnels) :**
+- `analysis_type`: Filtre par type d'analyse (ex: `failles`).
+- `bbox`: Filtre par zone géographique au format `minx,miny,maxx,maxy` (ex: `28.8,-2.5,28.9,-2.4`).
+
 ## 🛠️ Exemples de commandes Client
 
-### Test avec cURL
+### Lancer une analyse
 ```bash
 curl -X POST https://[YOUR-CLOUD-RUN-URL]/analyze \
      -H "Content-Type: application/json" \

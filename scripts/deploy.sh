@@ -17,6 +17,14 @@ if [ -z "$FILESTORE_IP" ]; then
     exit 1
 fi
 
+# 1.5 Configuration pour Cloud Tasks et le Worker
+echo "Configuring environment variables for Cloud Tasks..."
+SERVICE_URL=$(gcloud run services describe $SERVICE_NAME --platform managed --region $REGION --format 'value(status.url)' 2>/dev/null || echo "")
+if [ -z "$SERVICE_URL" ]; then
+    echo "Service URL not found, will use placeholder. On first deploy, re-run this script after the service is created."
+fi
+WORKER_SA_EMAIL="geocongo-worker-sa@${PROJECT_ID}.iam.gserviceaccount.com" # Remplacez si vous utilisez un autre nom
+
 # 2. Build the Docker image using Cloud Build
 echo "Building image $IMAGE_NAME..."
 gcloud builds submit --tag $IMAGE_NAME --project=$PROJECT_ID .
@@ -38,7 +46,7 @@ gcloud beta run deploy $SERVICE_NAME \
     --timeout=600s \
     --add-volume=name=models-cache,type=nfs,location="${FILESTORE_IP}:/${FILESTORE_SHARE_NAME}" \
     --add-volume-mount=volume=models-cache,mount-path=/app/models \
-    --set-env-vars "GEOCONGO_API_KEY=test_key_geocongo,DEVICE=gpu"
+    --set-env-vars "GEOCONGO_API_KEY=test_key_geocongo,DEVICE=gpu,GCP_PROJECT_ID=${PROJECT_ID},GCP_REGION=${REGION},CLOUD_TASKS_QUEUE=geocongo-results-queue,CLOUD_TASKS_WORKER_URL=${SERVICE_URL},CLOUD_TASKS_WORKER_SA_EMAIL=${WORKER_SA_EMAIL}"
 
 echo "✅ Deployment command sent. Waiting for the new revision to become healthy..."
 

@@ -92,6 +92,25 @@ class AIService:
         except Exception as e:
             print(f"⚠️ An error occurred during cache cleanup: {e}")
 
+    def clear_all_cache(self) -> int:
+        """
+        Removes ALL files from the satellite cache directory.
+        This is a blocking I/O operation.
+        """
+        print("🔥 Clearing all files from satellite cache...")
+        files_deleted = 0
+        try:
+            for filename in os.listdir(self.satellite_cache_dir):
+                file_path = os.path.join(self.satellite_cache_dir, filename)
+                if os.path.isfile(file_path):
+                    os.remove(file_path)
+                    files_deleted += 1
+            print(f"✅ Cache clear complete. Deleted {files_deleted} files.")
+            return files_deleted
+        except Exception as e:
+            print(f"⚠️ An error occurred during cache clearing: {e}")
+            raise e
+
     async def fetch_satellite_data(self, bbox: List[float], time_range: str = "2023-01-01/2023-12-31", analysis_type: str = None) -> str:
         """
         Searches and downloads Sentinel-2 multispectral data for a given Bbox using Microsoft Planetary Computer.
