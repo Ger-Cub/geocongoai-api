@@ -6,7 +6,7 @@ venv/
 .env
 
 # Project specific
-# models/
+models/
 data/
 *.pt
 *.pth
