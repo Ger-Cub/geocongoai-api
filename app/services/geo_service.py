@@ -5,25 +5,18 @@ import numpy as np
 import io
 import rasterio
 from PIL import Image
-try:
-    from qgis.core import QgsVectorLayer, QgsProject
-    from qgis import processing
-    from processing.core.Processing import Processing
-    HAS_QGIS = True
-except ImportError:
-    HAS_QGIS = False
-    print("⚠️ PyQGIS not found. GeoService will run in Simulation Mode.")
 
-try:
-    import matplotlib.pyplot as plt
-    import matplotlib.cm as cm
-    HAS_MATPLOTLIB = True
-except ImportError:
-    print("⚠️ Matplotlib not found. Raster preview generation will be disabled.")
+from qgis.core import QgsVectorLayer
+from qgis import processing
+from processing.core.Processing import Processing
+import matplotlib.pyplot as plt
+import matplotlib.cm as cm
+
 
 class GeoService:
-    def __init__(self):
-        if HAS_QGIS:
+    def __init__(self, qgis_available: bool = False):
+        self.has_qgis = qgis_available
+        if self.has_qgis:
             Processing.initialize()
             print("QGIS Processing framework initialized.")
         else:
@@ -53,7 +46,7 @@ class GeoService:
         """
         Converts a classification raster into vector format using QGIS Polygonize.
         """
-        if not HAS_QGIS:
+        if not self.has_qgis:
             print("⚠️ Skipping vectorization because PyQGIS is not available.")
             return self._mock_vectorize(raster_path)
 
@@ -80,7 +73,7 @@ class GeoService:
         """
         Reads a Geopackage/Shapefile and returns it as a GeoJSON dictionary.
         """
-        if not HAS_QGIS or not os.path.exists(vector_path):
+        if not self.has_qgis or not os.path.exists(vector_path):
             print("⚠️ Skipping GeoJSON conversion because vector file is missing.")
             return self._mock_geojson()
 
@@ -124,9 +117,6 @@ class GeoService:
                 image = Image.fromarray(rgb_image)
 
             else:
-                if not HAS_MATPLOTLIB:
-                    print("⚠️ Matplotlib not available, cannot generate preview.")
-                    return None
                 # Logique existante pour les autres types d'analyse (ex: viridis)
                 # 'cmap' normalise les données et les mappe en couleurs RGBA
                 colored_data = cm.viridis(data / data.max() if data.max() > 0 else data)

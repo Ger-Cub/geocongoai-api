@@ -6,18 +6,6 @@ from enum import Enum
 from typing import List, Optional
 from sqlalchemy.orm import Session
 
-# --- QGIS Initialization ---
-# This must be done BEFORE importing any internal QGIS modules that depend on QgsApplication
-try:
-    from qgis.core import QgsApplication
-    # Initialize QGIS Application in headless mode
-    qgs = QgsApplication([], False)
-    qgs.initQgis()
-    print("PyQGIS Initialized successfully in headless mode.")
-except (ImportError, Exception) as e:
-    print(f"⚠️ Warning: Failed to initialize PyQGIS ({e}). AI functions will work, but GIS vectorization will be simulated.")
-    qgs = None
-
 from app.core.security import get_api_key
 from app.services.ai_service import AIService
 from app.services.geo_service import GeoService
@@ -50,20 +38,32 @@ class CacheFileInfo(BaseModel):
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup logic
-    global ai_service, geo_service, tasks_service
     print("🚀 Starting GeoCongo AI API...")
+
+    # --- QGIS Initialization (moved here to not block import) ---
+    try:
+        from qgis.core import QgsApplication
+        # Initialize QGIS Application in headless mode
+        app.state.qgs = QgsApplication([], False)
+        app.state.qgs.initQgis()
+        print("PyQGIS Initialized successfully in headless mode.")
+    except (ImportError, Exception) as e:
+        print(f"⚠️ Warning: Failed to initialize PyQGIS ({e}). GIS vectorization will be simulated.")
+        app.state.qgs = None
+
     # Initialize services inside the lifespan to avoid blocking the module import
     app.state.ai_service = AIService()
-    app.state.geo_service = GeoService()
+    app.state.geo_service = GeoService(qgis_available=(app.state.qgs is not None))
     try:
         app.state.tasks_service = CloudTasksService()
     except ValueError as e:
         app.state.tasks_service = None
         print(f"⚠️ CloudTasksService not initialized: {e}. Asynchronous saving will be disabled.")
+
     yield
     # Shutdown logic
-    if qgs:
-        qgs.exitQgis()
+    if app.state.qgs:
+        app.state.qgs.exitQgis()
         print("QGIS Application exited cleanly.")
 
 app = FastAPI(
@@ -240,11 +240,13 @@ async def root():
 
 @app.get("/health")
 async def health(ai_service: Optional[AIService] = Depends(lambda: getattr(app.state, "ai_service", None))):
+    qgis_status = "initialized" if getattr(app.state, "qgs", None) else "simulated"
+    models_loaded = "ok" if ai_service and getattr(ai_service, 'prithvi_model', None) and getattr(ai_service, 'sam_model', None) else "loading_or_failed"
     return {
         "status": "healthy" if ai_service else "initializing",
-        "qgis": "initialized" if qgs else "simulated",
-        "models_loaded": "ok" if ai_service and ai_service.prithvi_model and ai_service.sam_model else "loading_or_failed",
-        "device": ai_service.device if ai_service else "unknown",
+        "qgis": qgis_status,
+        "models_loaded": models_loaded,
+        "device": getattr(ai_service, 'device', 'unknown'),
     }
 
 @app.get("/admin/cache-info", dependencies=[Depends(get_api_key)], response_model=List[CacheFileInfo])
@@ -252,6 +254,7 @@ async def get_cache_info():
     """
     Lists files in the satellite cache, their size, and the total cache size.
     """
+    ai_service: Optional[AIService] = getattr(app.state, "ai_service", None)
     if not ai_service:
         raise HTTPException(status_code=503, detail="Service not initialized")
 
@@ -273,6 +276,7 @@ async def clear_cache():
     """
     Manually clears all files from the satellite image cache.
     """
+    ai_service: Optional[AIService] = getattr(app.state, "ai_service", None)
     if not ai_service:
         raise HTTPException(status_code=503, detail="Service not initialized")
     

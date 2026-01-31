@@ -1,4 +1,4 @@
-# Dockerfile.lite - version sans QGIS pourenvironnements avec réseau restreint
+# Dockerfile.lite - GeoCongo AI Cloud Run GPU ready, PyQGIS optional
 FROM nvidia/cuda:12.4.1-runtime-ubuntu22.04
 
 ENV DEBIAN_FRONTEND=noninteractive
@@ -17,20 +17,23 @@ WORKDIR /app
 
 # Installation de PyTorch
 RUN if [ "$DEVICE" = "gpu" ] ; then \
-    pip3 install --no-cache-dir torch==2.2.1 torchvision==0.17.1 --index-url https://download.pytorch.org/whl/cu121 ; \
+        pip3 install --no-cache-dir torch==2.2.1 torchvision==0.17.1 --index-url https://download.pytorch.org/whl/cu121 ; \
     else \
-    pip3 install --no-cache-dir torch==2.2.1 torchvision==0.17.1 --index-url https://download.pytorch.org/whl/cpu ; \
+        pip3 install --no-cache-dir torch==2.2.1 torchvision==0.17.1 --index-url https://download.pytorch.org/whl/cpu ; \
     fi
 
+# Requirements
 COPY requirements.txt .
 RUN pip3 install --no-cache-dir -r requirements.txt
 
-# Copie du code uniquement (les modèles seront montés en volume)
+# Code de l'application
 COPY ./app /app/app
-# Le répertoire models sera monté via 'docker run -v ...'
+
+# Dossiers pour modèles et données montés en volume
 RUN mkdir -p /app/models /app/data
 
-EXPOSE 8000
+# Expose port for Cloud Run (dynamic)
+EXPOSE 8080
 
-# Lancement direct (puisqu'il n'y a pas de QGIS, pas besoin de Xvfb)
-CMD ["python3", "-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+# Start FastAPI with dynamic port from Cloud Run
+CMD ["sh", "-c", "python3 -m uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8080}"]
