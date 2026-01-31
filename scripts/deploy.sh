@@ -6,16 +6,7 @@ PROJECT_ID="geocongoai-api"
 SERVICE_NAME="geocongoai-api"
 REGION="europe-west4" # Region avec support GPU (Pays-Bas)
 IMAGE_NAME="gcr.io/$PROJECT_ID/$SERVICE_NAME"
-FILESTORE_INSTANCE="geocongo-models-cache" # Nom de l'instance Filestore
-FILESTORE_SHARE_NAME="models" # Nom du partage de fichiers dans Filestore
-
-# 1. Get Filestore IP address
-echo "Fetching Filestore IP address..."
-FILESTORE_IP=$(gcloud filestore instances describe $FILESTORE_INSTANCE --project=$PROJECT_ID --zone=${REGION}-a --format="value(networks[0].ipAddresses[0])")
-if [ -z "$FILESTORE_IP" ]; then
-    echo "❌ Could not get Filestore IP. Make sure the instance '$FILESTORE_INSTANCE' exists in zone '${REGION}-a'."
-    exit 1
-fi
+MODELS_BUCKET="geocongo-models-bucket" # ⬅️ IMPORTANT: Remplacez par le nom EXACT de votre bucket GCS
 
 # 1.5 Configuration pour Cloud Tasks et le Worker
 echo "Configuring environment variables for Cloud Tasks..."
@@ -29,8 +20,8 @@ WORKER_SA_EMAIL="geocongo-worker-sa@${PROJECT_ID}.iam.gserviceaccount.com" # Rem
 echo "Building image $IMAGE_NAME..."
 gcloud builds submit --tag $IMAGE_NAME --project=$PROJECT_ID .
 
-# 3. Deploy to Cloud Run with GPU and Filestore NFS Mount
-echo "Deploying to Cloud Run with GPU (nvidia-l4) and Filestore NFS mount..."
+# 3. Deploy to Cloud Run with GPU and Cloud Storage FUSE Mount
+echo "Deploying to Cloud Run with GPU (nvidia-l4) and GCS mount for models..."
 gcloud beta run deploy $SERVICE_NAME \
     --project=$PROJECT_ID \
     --image $IMAGE_NAME \
@@ -44,8 +35,8 @@ gcloud beta run deploy $SERVICE_NAME \
     --execution-environment gen2 \
     --startup-cpu-boost \
     --timeout=600s \
-    --add-volume=name=models-cache,type=nfs,location="${FILESTORE_IP}:/${FILESTORE_SHARE_NAME}" \
-    --add-volume-mount=volume=models-cache,mount-path=/app/models \
+    --add-volume=name=models-volume,type=cloud-storage,bucket=${MODELS_BUCKET} \
+    --add-volume-mount=volume=models-volume,mount-path=/app/models \
     --set-env-vars "GEOCONGO_API_KEY=test_key_geocongo,DEVICE=gpu,GCP_PROJECT_ID=${PROJECT_ID},GCP_REGION=${REGION},CLOUD_TASKS_QUEUE=geocongo-results-queue,CLOUD_TASKS_WORKER_URL=${SERVICE_URL},CLOUD_TASKS_WORKER_SA_EMAIL=${WORKER_SA_EMAIL}"
 
 echo "✅ Deployment command sent. Waiting for the new revision to become healthy..."
