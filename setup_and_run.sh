@@ -33,4 +33,4 @@ pip install -r "$PROJECT_DIR/requirements.txt"
 echo "🚀 Launching GeoCongo AI API..."
 cd "$PROJECT_DIR"
 # Run uvicorn as a module to ensure it uses the venv's interpreter
-python3 -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+python3 -m uvicorn app.main:app --host 0.0.0.0 --port 8080 --reload

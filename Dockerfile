@@ -17,9 +17,9 @@ WORKDIR /app
 
 # Installation de PyTorch
 RUN if [ "$DEVICE" = "gpu" ] ; then \
-        pip3 install --no-cache-dir torch==2.2.1 torchvision==0.17.1 --index-url https://download.pytorch.org/whl/cu121 ; \
+    pip3 install --no-cache-dir torch==2.2.1 torchvision==0.17.1 --index-url https://download.pytorch.org/whl/cu121 ; \
     else \
-        pip3 install --no-cache-dir torch==2.2.1 torchvision==0.17.1 --index-url https://download.pytorch.org/whl/cpu ; \
+    pip3 install --no-cache-dir torch==2.2.1 torchvision==0.17.1 --index-url https://download.pytorch.org/whl/cpu ; \
     fi
 
 # Requirements

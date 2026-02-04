@@ -11,13 +11,56 @@ class CloudTasksService:
         self.project = os.getenv("GCP_PROJECT_ID")
         self.location = os.getenv("GCP_REGION")
         self.queue = os.getenv("CLOUD_TASKS_QUEUE")
-        self.worker_url = os.getenv("CLOUD_TASKS_WORKER_URL")
+        
+        # Helper method for defaults
         self.worker_sa_email = os.getenv("CLOUD_TASKS_WORKER_SA_EMAIL")
 
-        if not all([self.project, self.location, self.queue, self.worker_url, self.worker_sa_email]):
-            raise ValueError("Missing required environment variables for CloudTasksService.")
+        # Load Worker URLs for Microservices
+        self.worker_urls = {
+            "default": os.getenv("CLOUD_TASKS_WORKER_URL"), # Fallback
+            "landcover": os.getenv("WORKER_URL_LANDCOVER"),
+            "failles": os.getenv("WORKER_URL_DETECTION"),
+            "mines": os.getenv("WORKER_URL_MINERALS"),
+            "minéraux": os.getenv("WORKER_URL_MINERALS"),
+            "glissements de terrain": os.getenv("WORKER_URL_DETECTION") # Using detection worker for consistency
+        }
+
+        if not all([self.project, self.location, self.queue, self.worker_sa_email]):
+             # We might not have all worker URLs at build time, but we need the basics
+             raise ValueError("Missing required basic environment variables for CloudTasksService.")
 
         self.parent = self.client.queue_path(self.project, self.location, self.queue)
+
+    def create_task(self, endpoint: str, payload: Dict):
+        """
+        Creates a generic Cloud Task, routing to the correct service based on analysis_type.
+        """
+        analysis_type = payload.get("analysis_type")
+        target_url_base = self.worker_urls.get(str(analysis_type).lower())
+        
+        # Fallback to default worker URL if specific route not found
+        if not target_url_base:
+            target_url_base = self.worker_urls.get("default")
+        
+        if not target_url_base:
+            raise ValueError(f"No worker URL configured for analysis type: {analysis_type}")
+
+        full_url = f"{target_url_base}{endpoint}"
+
+        task = {
+            "http_request": {
+                "http_method": tasks_v2.HttpMethod.POST,
+                "url": full_url,
+                "headers": {"Content-Type": "application/json"},
+                "body": json.dumps(payload).encode(),
+                "oidc_token": {"service_account_email": self.worker_sa_email},
+            },
+             "dispatch_deadline": datetime.timedelta(minutes=15).total_seconds(), # 15 min for analysis
+        }
+
+        response = self.client.create_task(parent=self.parent, task=task)
+        print(f"Created task {response.name} targeting {full_url}")
+        return response.name
 
     def create_save_result_task(self, geojson_data: Dict, analysis_type: str, request_bbox: List[float]):
         """
@@ -28,11 +71,18 @@ class CloudTasksService:
             "analysis_type": analysis_type,
             "request_bbox": request_bbox
         }
+        
+        # Save results can go to the Router or a specific worker. 
+        # Using default/router URL usually fine as it's just DB write.
+        target_url = self.worker_urls.get("default")
+        if not target_url: 
+             # Fallback: try to find any available URL
+             target_url = next((url for url in self.worker_urls.values() if url), None)
 
         task = {
             "http_request": {
                 "http_method": tasks_v2.HttpMethod.POST,
-                "url": f"{self.worker_url}/tasks/save-results",
+                "url": f"{target_url}/tasks/save-results",
                 "headers": {"Content-Type": "application/json"},
                 "body": json.dumps(payload).encode(),
                 "oidc_token": {"service_account_email": self.worker_sa_email},

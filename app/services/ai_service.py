@@ -13,8 +13,6 @@ from odc.stac import stac_load
 
 # Importation de l'architecture Prithvi depuis transformers
 from transformers import AutoImageProcessor, MaskedAutoencoderForViT, SegformerForSemanticSegmentation
-
-
 from ultralytics import SAM
 
 class AIService:
@@ -28,9 +26,23 @@ class AIService:
         self.sam2_path = os.path.join(self.models_dir, "sam2/sam2_l.pt")
         self.landcover_path = os.path.join(self.models_dir, "landcover/segformer-b0-finetuned-ade-512-512")
         
-        # --- Chargement du modèle Prithvi ---
+        # --- Lazy Loading Initialization ---
+        # Models are initialized to None and loaded only when needed
         self.prithvi_model = None
         self.prithvi_processor = None
+        
+        self.sam_model = None
+        
+        self.landcover_model = None
+        self.landcover_processor = None
+
+        print(f"AI Service initialized on {self.device} (Lazy Loading enabled)")
+
+    def _load_prithvi(self):
+        """Loads Prithvi model if not already loaded"""
+        if self.prithvi_model is not None:
+            return
+
         if os.path.exists(self.prithvi_path):
             try:
                 print(f"Loading Prithvi model from {self.prithvi_path}...")
@@ -40,11 +52,16 @@ class AIService:
                 print("Prithvi model loaded successfully.")
             except Exception as e:
                 print(f"⚠️ Error loading Prithvi model: {e}")
+                self.prithvi_model = False # Avoid retrying
         else:
             print(f"Warning: Prithvi model NOT found at {self.prithvi_path}")
+            self.prithvi_model = False
 
-        # Load SAM 2 model using Ultralytics
-        self.sam_model = None
+    def _load_sam(self):
+        """Loads SAM 2 model if not already loaded"""
+        if self.sam_model is not None:
+            return
+
         if os.path.exists(self.sam2_path):
             try:
                 print(f"Loading SAM 2 from {self.sam2_path}...")
@@ -53,12 +70,16 @@ class AIService:
             except Exception as e:
                 print(f"⚠️ Error loading SAM 2: {e}")
                 print("Continuing with AI Service in Simulation Mode for SAM 2.")
+                self.sam_model = False
         else:
             print(f"Warning: SAM 2 model NOT found at {self.sam2_path}")
+            self.sam_model = False
 
-        # --- Chargement du modèle Landcover (Exemple avec SegFormer) ---
-        self.landcover_model = None
-        self.landcover_processor = None
+    def _load_landcover(self):
+        """Loads Landcover model if not already loaded"""
+        if self.landcover_model is not None:
+            return
+
         if os.path.exists(self.landcover_path):
             try:
                 print(f"Loading Landcover model from {self.landcover_path}...")
@@ -68,10 +89,10 @@ class AIService:
                 print("Landcover model loaded successfully.")
             except Exception as e:
                 print(f"⚠️ Error loading Landcover model: {e}")
+                self.landcover_model = False
         else:
             print(f"Warning: Landcover model NOT found at {self.landcover_path}")
-
-        print(f"AI Service initialized on {self.device}")
+            self.landcover_model = False
 
     def cleanup_cache(self, max_age_days: int = 30):
         """
@@ -199,7 +220,11 @@ class AIService:
             print(f"Running {analysis_type} inference on {sat_data_path}...")
 
             # Logique d'inférence pour les différents types d'analyse
-            if analysis_type in ['minéraux', 'mines'] and self.prithvi_model:
+            if analysis_type in ['minéraux', 'mines']:
+                self._load_prithvi()
+                if not self.prithvi_model:
+                     raise RuntimeError("Prithvi model is not available.")
+
                 print("Using Prithvi model for inference...")
                 with rasterio.open(sat_data_path) as src:
                     image_array = src.read() # Lit les bandes dans un tableau numpy. Shape: (bands, height, width)
@@ -229,7 +254,11 @@ class AIService:
                     dst.write(classification_map_np, 1)
                 print(f"Classification raster saved to {output_raster}")
 
-            elif analysis_type == 'failles' and self.sam_model:
+            elif analysis_type == 'failles':
+                self._load_sam()
+                if not self.sam_model:
+                     raise RuntimeError("SAM model is not available.")
+
                 print("Using SAM model for inference...")
                 with rasterio.open(sat_data_path) as src:
                     src_profile = src.profile # Sauvegarde les métadonnées géo
@@ -254,7 +283,11 @@ class AIService:
                     dst.write(mask_np, 1)
                 print(f"Fault detection raster saved to {output_raster}")
 
-            elif analysis_type == 'landcover' and self.landcover_model:
+            elif analysis_type == 'landcover':
+                self._load_landcover()
+                if not self.landcover_model:
+                     raise RuntimeError("Landcover model is not available.")
+
                 print("Using Landcover (SegFormer) model for inference...")
                 # Les modèles de segmentation classiques utilisent souvent des images RGB
                 # Nous allons lire uniquement les 3 premières bandes (Red, Green, Blue)

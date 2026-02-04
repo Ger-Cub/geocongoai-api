@@ -40,25 +40,43 @@ async def lifespan(app: FastAPI):
     # Startup logic
     print("🚀 Starting GeoCongo AI API...")
 
-    # --- QGIS Initialization (moved here to not block import) ---
-    try:
-        from qgis.core import QgsApplication
-        # Initialize QGIS Application in headless mode
-        app.state.qgs = QgsApplication([], False)
-        app.state.qgs.initQgis()
-        print("PyQGIS Initialized successfully in headless mode.")
-    except (ImportError, Exception) as e:
-        print(f"⚠️ Warning: Failed to initialize PyQGIS ({e}). GIS vectorization will be simulated.")
-        app.state.qgs = None
+    # --- Conditional Service Initialization (Microservices) ---
+    enabled_service = os.getenv("ENABLED_SERVICE", "router") # default to router
+    print(f"🚀 Starting GeoCongo AI API in mode: {enabled_service}")
 
     # Initialize services inside the lifespan to avoid blocking the module import
-    app.state.ai_service = AIService()
-    app.state.geo_service = GeoService(qgis_available=(app.state.qgs is not None))
+    if enabled_service != 'router':
+        # Worker Mode: Load AIService (Models loaded on demand or preloaded)
+        app.state.ai_service = AIService()
+        
+        # Initialize QGIS mostly for workers
+        try:
+            from qgis.core import QgsApplication
+            app.state.qgs = QgsApplication([], False)
+            app.state.qgs.initQgis()
+            print("PyQGIS Initialized successfully in headless mode.")
+        except (ImportError, Exception) as e:
+            print(f"⚠️ Warning: Failed to initialize PyQGIS ({e}). GIS vectorization will be simulated.")
+            app.state.qgs = None
+            
+        app.state.geo_service = GeoService(qgis_available=(app.state.qgs is not None))
+    else:
+        # Router Mode: No AI, No QGIS
+        app.state.ai_service = None
+        app.state.qgs = None
+        app.state.geo_service = None # Router doesn't need GeoService for vectorization
+        print("Router Mode: AI and Geo services disabled.")
+
+    # CloudTasksService is essential for the Router to dispatch tasks.
+    # Workers might need it if they chain tasks, but primarily Router needs it.
     try:
         app.state.tasks_service = CloudTasksService()
     except ValueError as e:
         app.state.tasks_service = None
-        print(f"⚠️ CloudTasksService not initialized: {e}. Asynchronous saving will be disabled.")
+        if enabled_service == 'router':
+             print(f"⚠️ CRITICAL: CloudTasksService not initialized on Router: {e}. Dispatching will fail.")
+        else:
+             print(f"⚠️ CloudTasksService not initialized: {e}. Worker mode can operate without it.")
 
     yield
     # Shutdown logic
@@ -241,12 +259,18 @@ async def root():
 @app.get("/health")
 async def health(ai_service: Optional[AIService] = Depends(lambda: getattr(app.state, "ai_service", None))):
     qgis_status = "initialized" if getattr(app.state, "qgs", None) else "simulated"
-    models_loaded = "ok" if ai_service and getattr(ai_service, 'prithvi_model', None) and getattr(ai_service, 'sam_model', None) else "loading_or_failed"
+    models_loaded = "ok" if ai_service and getattr(ai_service, 'prithvi_model', None) else "on_demand"
+    
+    # In Router mode, ai_service is None but the service is healthy.
+    enabled_service = os.getenv("ENABLED_SERVICE", "router")
+    is_healthy = True if (enabled_service == 'router') or ai_service else False
+
     return {
-        "status": "healthy" if ai_service else "initializing",
+        "status": "healthy" if is_healthy else "initializing",
         "qgis": qgis_status,
         "models_loaded": models_loaded,
-        "device": getattr(ai_service, 'device', 'unknown'),
+        "device": getattr(ai_service, 'device', 'unknown') if ai_service else 'cpu',
+        "mode": enabled_service
     }
 
 @app.get("/admin/cache-info", dependencies=[Depends(get_api_key)], response_model=List[CacheFileInfo])
