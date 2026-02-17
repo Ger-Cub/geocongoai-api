@@ -1,10 +1,10 @@
-# Dockerfile.lite - GeoCongo AI Cloud Run GPU ready, PyQGIS optional
+# Dockerfile - GeoCongo AI Cloud Run GPU ready, Pure Python GIS
 FROM nvidia/cuda:12.4.1-runtime-ubuntu22.04
 
 ENV DEBIAN_FRONTEND=noninteractive
 ENV PYTHONUNBUFFERED=1
 
-# Installation des dépendances minimales (sans PPA externe)
+# Installation des dépendances minimales
 RUN apt-get update && apt-get install -y \
     python3-pip \
     python3-dev \

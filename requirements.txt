@@ -21,6 +21,6 @@ google-cloud-tasks==2.15.0
 sqlalchemy==2.0.25
 geoalchemy2==0.14.0
 psycopg2-binary==2.9.9 # Driver PostgreSQL
-# Note: geoai might be a custom library or specific repo, 
-# assuming 'geoai' refers to standard tools or specific repo installation
-# If it's a specific package like 'geowombat' or similar, we'd add it here.
+scikit-image
+scipy
+shapely

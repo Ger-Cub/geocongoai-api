@@ -44,31 +44,20 @@ async def lifespan(app: FastAPI):
     enabled_service = os.getenv("ENABLED_SERVICE", "router") # default to router
     print(f"🚀 Starting GeoCongo AI API in mode: {enabled_service}")
 
-    # Initialize services inside the lifespan to avoid blocking the module import
+    # Initialize services inside the lifespan
     if enabled_service != 'router':
-        # Worker Mode: Load AIService (Models loaded on demand or preloaded)
+        # Worker Mode: Load AIService and GeoService (Pure Python)
         app.state.ai_service = AIService()
-        
-        # Initialize QGIS mostly for workers
-        try:
-            from qgis.core import QgsApplication
-            app.state.qgs = QgsApplication([], False)
-            app.state.qgs.initQgis()
-            print("PyQGIS Initialized successfully in headless mode.")
-        except (ImportError, Exception) as e:
-            print(f"⚠️ Warning: Failed to initialize PyQGIS ({e}). GIS vectorization will be simulated.")
-            app.state.qgs = None
-            
-        app.state.geo_service = GeoService(qgis_available=(app.state.qgs is not None))
+        app.state.geo_service = GeoService()
+        app.state.qgs = None # QGIS no longer used
     else:
-        # Router Mode: No AI, No QGIS
+        # Router Mode: No AI, No Geo
         app.state.ai_service = None
+        app.state.geo_service = None
         app.state.qgs = None
-        app.state.geo_service = None # Router doesn't need GeoService for vectorization
         print("Router Mode: AI and Geo services disabled.")
 
-    # CloudTasksService is essential for the Router to dispatch tasks.
-    # Workers might need it if they chain tasks, but primarily Router needs it.
+    # CloudTasksService
     try:
         app.state.tasks_service = CloudTasksService()
     except ValueError as e:
@@ -80,9 +69,7 @@ async def lifespan(app: FastAPI):
 
     yield
     # Shutdown logic
-    if app.state.qgs:
-        app.state.qgs.exitQgis()
-        print("QGIS Application exited cleanly.")
+    print("Shutting down GeoCongo AI API...")
 
 app = FastAPI(
     title="GeoCongo AI API",

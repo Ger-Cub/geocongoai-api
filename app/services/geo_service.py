@@ -4,23 +4,18 @@ import base64
 import numpy as np
 import io
 import rasterio
+from rasterio import features
+import geopandas as gpd
+from shapely.geometry import shape, mapping
 from PIL import Image
-
-from qgis.core import QgsVectorLayer
-from qgis import processing
-from processing.core.Processing import Processing
 import matplotlib.pyplot as plt
 import matplotlib.cm as cm
-
+from skimage import morphology
+from scipy.ndimage import sobel
 
 class GeoService:
-    def __init__(self, qgis_available: bool = False):
-        self.has_qgis = qgis_available
-        if self.has_qgis:
-            Processing.initialize()
-            print("QGIS Processing framework initialized.")
-        else:
-            print("GeoService initialized in Simulation Mode (No QGIS).")
+    def __init__(self):
+        print("GeoService initialized with pure Python libraries (Rasterio, Geopandas).")
         self.landcover_colormap, self.landcover_labels = self._load_colormap_and_labels()
 
     def _load_colormap_and_labels(self) -> (np.ndarray, dict):
@@ -42,27 +37,40 @@ class GeoService:
             print(f"⚠️ Could not load landcover colormap: {e}. Previews will use default colors.")
             return None, {}
 
-    def vectorize_raster(self, raster_path: str) -> str:
+    def vectorize_raster(self, raster_path: str, analysis_type: str = "landcover") -> str:
         """
-        Converts a classification raster into vector format using QGIS Polygonize.
+        Converts a classification raster into vector format using Rasterio and Geopandas.
+        Saves the result as a Geopackage for internal storage consistency.
         """
-        if not self.has_qgis:
-            print("⚠️ Skipping vectorization because PyQGIS is not available.")
-            return self._mock_vectorize(raster_path)
-
         output_vector = raster_path.replace(".tif", ".gpkg")
         
         try:
-            print(f"Vectorizing {raster_path} to {output_vector} using gdal:polygonize...")
-            params = {
-                'INPUT': raster_path,
-                'BAND': 1,
-                'FIELD': 'class',
-                'EIGHT_CONNECTEDNESS': False,
-                'OUTPUT': output_vector
-            }
-            # Exécution réelle de l'algorithme de QGIS
-            processing.run("gdal:polygonize", params)
+            print(f"Vectorizing {raster_path} to {output_vector} using Pure Python (Rasterio/Geopandas)...")
+            
+            with rasterio.open(raster_path) as src:
+                image = src.read(1)
+                mask = image > 0
+                results = list(
+                    {'properties': {'class': int(v)}, 'geometry': s}
+                    for i, (s, v) in enumerate(features.shapes(image, mask=mask, transform=src.transform))
+                )
+                
+                # Convertir en GeoDataFrame
+                geoms = [shape(feature['geometry']) for feature in results]
+                classes = [feature['properties']['class'] for feature in results]
+                
+                if not geoms:
+                    print("⚠️ No valid polygons found in raster.")
+                    return self._create_empty_vector(output_vector, src.crs)
+
+                gdf = gpd.GeoDataFrame({'class': classes, 'geometry': geoms}, crs=src.crs)
+                
+                # Simplification optionnelle pour alléger le GeoJSON final si nécessaire
+                # gdf['geometry'] = gdf['geometry'].simplify(0.0001)
+
+                # Sauvegarde en GeoPackage
+                gdf.to_file(output_vector, driver="GPKG")
+                
             print("Vectorization complete.")
             return output_vector
         except Exception as e:
@@ -71,28 +79,25 @@ class GeoService:
 
     def read_vector_as_geojson(self, vector_path: str, analysis_type: str = None) -> dict:
         """
-        Reads a Geopackage/Shapefile and returns it as a GeoJSON dictionary.
+        Reads a Geopackage/Shapefile using Geopandas and returns it as a GeoJSON dictionary.
         """
-        if not self.has_qgis or not os.path.exists(vector_path):
-            print("⚠️ Skipping GeoJSON conversion because vector file is missing.")
-            return self._mock_geojson()
+        if not os.path.exists(vector_path):
+            print(f"⚠️ Vector file missing: {vector_path}")
+            return {"type": "FeatureCollection", "features": []}
 
         try:
-            # Charger la couche vecteur avec QGIS
-            layer = QgsVectorLayer(vector_path, "result_layer", "ogr")
-            if not layer.isValid():
-                raise Exception(f"Failed to load vector layer: {vector_path}")
+            gdf = gpd.read_file(vector_path)
             
-            # Récupérer les entités et les convertir en GeoJSON
-            features_geojson = []
-            for feature in layer.getFeatures():
-                feature_json = json.loads(feature.asJson())
-                # Si c'est une analyse landcover, ajouter le label de la classe
-                if analysis_type == 'landcover' and 'class' in feature_json['properties']:
-                    class_id = feature_json['properties']['class']
-                    feature_json['properties']['class_label'] = self.landcover_labels.get(class_id, 'unknown')
-                features_geojson.append(feature_json)
-            return {"type": "FeatureCollection", "features": features_geojson}
+            # Conversion en WGS84 (EPSG:4326) pour le frontend
+            if gdf.crs and gdf.crs != "EPSG:4326":
+                gdf = gdf.to_crs("EPSG:4326")
+            
+            # Enrichissement avec les labels landcover si applicable
+            if analysis_type == 'landcover' and 'class' in gdf.columns:
+                gdf['class_label'] = gdf['class'].map(lambda x: self.landcover_labels.get(int(x), 'unknown'))
+            
+            # Retourner le résultat en tant que FeatureCollection (Dictionnaire Python)
+            return json.loads(gdf.to_json())
         except Exception as e:
             print(f"❌ Error reading vector file as GeoJSON: {e}")
             raise e
@@ -108,53 +113,33 @@ class GeoService:
 
             if analysis_type == 'landcover':
                 if self.landcover_colormap is not None:
-                    # Utiliser la table de correspondance (LUT) pour une conversion rapide et vectorisée
-                    # Remplace chaque valeur d'index dans `data` par la couleur correspondante dans la LUT
+                    # Utiliser la table de correspondance (LUT)
                     rgb_image = self.landcover_colormap[data]
                 else:
-                    # Fallback si la palette n'a pas pu être chargée
                     rgb_image = np.stack([data, data, data], axis=-1).astype(np.uint8)
                 image = Image.fromarray(rgb_image)
 
             else:
                 # Logique existante pour les autres types d'analyse (ex: viridis)
-                # 'cmap' normalise les données et les mappe en couleurs RGBA
-                colored_data = cm.viridis(data / data.max() if data.max() > 0 else data)
+                valid_data = data[data > 0]
+                if valid_data.size == 0:
+                    normalized = data
+                else:
+                    dmax = data.max()
+                    normalized = data / dmax if dmax > 0 else data
                 
-                # Convertir en image PIL (en ignorant la couche alpha pour le moment)
+                colored_data = cm.viridis(normalized)
                 image = Image.fromarray((colored_data[:, :, :3] * 255).astype('uint8'))
 
-            # Sauvegarder l'image en mémoire dans un buffer
             buf = io.BytesIO()
             image.save(buf, format='PNG')
-
-            # Retourner la chaîne encodée en Base64
             return base64.b64encode(buf.getvalue()).decode('utf-8')
         except Exception as e:
             print(f"⚠️ Could not generate raster preview: {e}")
             return None
 
-    def _mock_vectorize(self, raster_path: str) -> str:
-        """Generates a dummy vector file for simulation mode."""
-        output_vector = raster_path.replace(".tif", ".gpkg")
-        with open(output_vector, "w") as f:
-            f.write("dummy vector data")
-        return output_vector
-
-    def _mock_geojson(self) -> dict:
-        """Returns a sample GeoJSON for simulation mode."""
-        return {
-            "type": "FeatureCollection",
-            "name": "mock_results",
-            "crs": {"type": "name", "properties": {"name": "urn:ogc:def:crs:EPSG::4326"}},
-            "features": [
-                {
-                    "type": "Feature",
-                    "properties": {"class": 1},
-                    "geometry": {
-                        "type": "Polygon",
-                        "coordinates": [[[25.0, -2.0], [25.1, -2.0], [25.1, -2.1], [25.0, -2.1], [25.0, -2.0]]]
-                    }
-                }
-            ]
-        }
+    def _create_empty_vector(self, path: str, crs) -> str:
+        """Creates an empty Geopackage if no objects are detected."""
+        empty_gdf = gpd.GeoDataFrame({'class': [], 'geometry': []}, crs=crs)
+        empty_gdf.to_file(path, driver="GPKG")
+        return path
