@@ -90,10 +90,11 @@ async def analyze(
     geo_service: GeoService = Depends(lambda: app.state.geo_service),
     tasks_service: Optional[CloudTasksService] = Depends(lambda: app.state.tasks_service),
     api_key: str = Depends(get_api_key)):
-    """
-    Launches an asynchronous analysis task.
-    Returns a task ID to track the progress.
-    """
+    if request.analysis_type == AnalysisType.LANDCOVER:
+        raise HTTPException(
+            status_code=400,
+            detail="The Landcover service is currently disabled. Please select another analysis type (e.g., mines, minerals, failles)."
+        )
     if not tasks_service:
         raise HTTPException(
             status_code=503, 

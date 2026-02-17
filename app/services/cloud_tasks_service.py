@@ -36,13 +36,17 @@ class CloudTasksService:
         Creates a generic Cloud Task, routing to the correct service based on analysis_type.
         """
         analysis_type = payload.get("analysis_type")
+        # Get the right worker URL based on analysis type
         target_url_base = self.worker_urls.get(str(analysis_type).lower())
         
-        # Fallback to default worker URL if specific route not found
-        if not target_url_base:
+        if not target_url_base or target_url_base.lower() == "none":
+            print(f"⚠️ Worker for {analysis_type} is not available. Attempting fallback to default worker.")
+            # Fallback to general worker if possible, or raise error
             target_url_base = self.worker_urls.get("default")
+            if not target_url_base or target_url_base.lower() == "none":
+                raise ValueError(f"No worker URL available for analysis type: {analysis_type} and default worker is also unavailable.")
         
-        if not target_url_base:
+        if not target_url_base: # This check is redundant if the above logic is correct, but kept for safety
             raise ValueError(f"No worker URL configured for analysis type: {analysis_type}")
 
         full_url = f"{target_url_base}{endpoint}"

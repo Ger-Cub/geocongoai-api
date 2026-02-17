@@ -76,8 +76,14 @@ deploy_worker() {
 # =========================================================
 # Déploiement des Workers
 # =========================================================
-WORKER_LANDCOVER_URL=$(deploy_worker "geocongoai-landcover" "landcover")
+# - Landcover: SKIPPED (user request)
+# WORKER_LANDCOVER_URL=$(deploy_worker "geocongoai-landcover" "landcover")
+WORKER_LANDCOVER_URL="none"
+
+# - Detection:
 WORKER_DETECTION_URL=$(deploy_worker "geocongoai-detection" "detection")
+
+# - Minerals:
 WORKER_MINERALS_URL=$(deploy_worker "geocongoai-minerals" "minerals")
 
 # =========================================================
@@ -104,7 +110,7 @@ gcloud run deploy "$ROUTER_SERVICE_NAME" \
     --execution-environment=gen2 \
     --timeout=600s \
     --port=8080 \
-    --set-env-vars="ENABLED_SERVICE=router,DEVICE=cpu,GEOCONGO_API_KEY=test_key_geocongo,GCP_PROJECT_ID=${PROJECT_ID},GCP_REGION=${REGION},CLOUD_TASKS_QUEUE=geocongo-results-queue,CLOUD_TASKS_WORKER_SA_EMAIL=${WORKER_SA_EMAIL},WORKER_URL_LANDCOVER=${WORKER_LANDCOVER_URL},WORKER_URL_DETECTION=${WORKER_DETECTION_URL},WORKER_URL_MINERALS=${WORKER_MINERALS_URL},CLOUD_TASKS_WORKER_URL=${WORKER_LANDCOVER_URL}"
+    --set-env-vars="ENABLED_SERVICE=router,DEVICE=cpu,GEOCONGO_API_KEY=test_key_geocongo,GCP_PROJECT_ID=${PROJECT_ID},GCP_REGION=${REGION},CLOUD_TASKS_QUEUE=geocongo-results-queue,CLOUD_TASKS_WORKER_SA_EMAIL=${WORKER_SA_EMAIL},WORKER_URL_LANDCOVER=${WORKER_LANDCOVER_URL},WORKER_URL_DETECTION=${WORKER_DETECTION_URL},WORKER_URL_MINERALS=${WORKER_MINERALS_URL},CLOUD_TASKS_WORKER_URL=${WORKER_DETECTION_URL}"
 
 # =========================================================
 # Fin
