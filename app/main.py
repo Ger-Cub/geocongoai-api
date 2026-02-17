@@ -46,10 +46,15 @@ async def lifespan(app: FastAPI):
 
     # Initialize services inside the lifespan
     if enabled_service != 'router':
-        # Worker Mode: Load AIService and GeoService (Pure Python)
+        print(f"📦 Initializing AIService for mode: {enabled_service}...")
         app.state.ai_service = AIService()
+        print("✅ AIService initialized.")
+        
+        print("📦 Initializing GeoService...")
         app.state.geo_service = GeoService()
-        app.state.qgs = None # QGIS no longer used
+        print("✅ GeoService initialized.")
+        
+        app.state.qgs = None
     else:
         # Router Mode: No AI, No Geo
         app.state.ai_service = None

@@ -19,7 +19,7 @@ class AIService:
     def __init__(self):
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
         self.models_dir = "/app/models"
-        self.satellite_cache_dir = os.path.join(self.models_dir, "satellite_cache")
+        self.satellite_cache_dir = "/tmp/geocongo_cache"
         os.makedirs(self.satellite_cache_dir, exist_ok=True)
 
         self.prithvi_path = os.path.join(self.models_dir, "prithvi/Prithvi_EO_V2_600M_TL.pt")
