@@ -5,9 +5,9 @@ set -e
 # Configuration globale
 # =========================================================
 PROJECT_ID="geocongoai-api"
-REGION="europe-west4"
+REGION="europe-west1"
 IMAGE_NAME="gcr.io/${PROJECT_ID}/geocongoai-api"
-MODELS_BUCKET="geocongo-models-bucket"
+MODELS_BUCKET="geocongoai-models-storage"
 WORKER_SA_EMAIL="geocongo-worker-sa@${PROJECT_ID}.iam.gserviceaccount.com"
 
 # =========================================================
@@ -43,10 +43,10 @@ deploy_worker() {
             ;;
     esac
 
-    echo "----------------------------------------------------"
-    echo "🚀 Deploying Worker: $SERVICE_NAME"
-    echo "   Mode: $MODE | CPU: $CPU | Memory: $MEMORY"
-    echo "----------------------------------------------------"
+    echo "----------------------------------------------------" >&2
+    echo "🚀 Deploying Worker: $SERVICE_NAME" >&2
+    echo "   Mode: $MODE | CPU: $CPU | Memory: $MEMORY" >&2
+    echo "----------------------------------------------------" >&2
 
     gcloud beta run deploy "$SERVICE_NAME" \
         --project="$PROJECT_ID" \
@@ -62,14 +62,14 @@ deploy_worker() {
         --port=8080 \
         --add-volume=name=models-volume,type=cloud-storage,bucket="${MODELS_BUCKET}" \
         --add-volume-mount=volume=models-volume,mount-path=/app/models \
-        --set-env-vars="ENABLED_SERVICE=${MODE},DEVICE=cpu,GEOCONGO_API_KEY=test_key_geocongo,GCP_PROJECT_ID=${PROJECT_ID},GCP_REGION=${REGION},CLOUD_TASKS_QUEUE=geocongo-results-queue,CLOUD_TASKS_WORKER_SA_EMAIL=${WORKER_SA_EMAIL}"
+        --set-env-vars="ENABLED_SERVICE=${MODE},DEVICE=cpu,GEOCONGO_API_KEY=test_key_geocongo,GCP_PROJECT_ID=${PROJECT_ID},GCP_REGION=${REGION},CLOUD_TASKS_QUEUE=geocongo-results-queue,CLOUD_TASKS_WORKER_SA_EMAIL=${WORKER_SA_EMAIL}" >&2
 
     WORKER_URL=$(gcloud run services describe "$SERVICE_NAME" \
         --platform=managed \
         --region="$REGION" \
         --format='value(status.url)')
 
-    echo "✅ $SERVICE_NAME deployed at: $WORKER_URL"
+    echo "✅ $SERVICE_NAME deployed at: $WORKER_URL" >&2
     echo "$WORKER_URL"
 }
 
