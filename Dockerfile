@@ -15,16 +15,9 @@ RUN apt-get update && apt-get install -y \
 ARG DEVICE=cpu
 WORKDIR /app
 
-# Installation de PyTorch
-RUN if [ "$DEVICE" = "gpu" ] ; then \
-    pip3 install --no-cache-dir --upgrade torch==2.4.1 torchvision==0.19.1 --index-url https://download.pytorch.org/whl/cu121 ; \
-    else \
-    pip3 install --no-cache-dir --upgrade torch==2.4.1 torchvision==0.19.1 --index-url https://download.pytorch.org/whl/cpu ; \
-    fi
-
 # Requirements
 COPY requirements.txt .
-RUN pip3 install --no-cache-dir -r requirements.txt
+RUN pip3 install --no-cache-dir --upgrade -r requirements.txt
 
 # Code de l'application
 COPY ./app /app/app
