@@ -25,3 +25,5 @@ psycopg2-binary==2.9.9 # Driver PostgreSQL
 scikit-image
 scipy
 shapely
+transformers
+rioxarray
