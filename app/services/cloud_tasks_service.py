@@ -9,7 +9,7 @@ class CloudTasksService:
     def __init__(self):
         self.client = tasks_v2.CloudTasksClient()
         self.project = os.getenv("GCP_PROJECT_ID")
-        self.location = os.getenv("GCP_REGION")
+        self.location = os.getenv("CLOUD_TASKS_REGION", os.getenv("GCP_REGION"))
         self.queue = os.getenv("CLOUD_TASKS_QUEUE")
         self.worker_url = os.getenv("CLOUD_TASKS_WORKER_URL")
         self.worker_sa_email = os.getenv("CLOUD_TASKS_WORKER_SA_EMAIL")

@@ -5,22 +5,15 @@ import numpy as np
 import io
 import rasterio
 from PIL import Image
-
-from qgis.core import QgsVectorLayer
-from qgis import processing
-from processing.core.Processing import Processing
+from rasterio.features import shapes
+from shapely.geometry import shape
 import matplotlib.pyplot as plt
 import matplotlib.cm as cm
 
 
 class GeoService:
-    def __init__(self, qgis_available: bool = False):
-        self.has_qgis = qgis_available
-        if self.has_qgis:
-            Processing.initialize()
-            print("QGIS Processing framework initialized.")
-        else:
-            print("GeoService initialized in Simulation Mode (No QGIS).")
+    def __init__(self):
+        print("GeoService initialized.")
         self.landcover_colormap, self.landcover_labels = self._load_colormap_and_labels()
 
     def _load_colormap_and_labels(self) -> (np.ndarray, dict):
@@ -46,56 +39,45 @@ class GeoService:
         """
         Converts a classification raster into vector format using QGIS Polygonize.
         """
-        if not self.has_qgis:
-            print("⚠️ Skipping vectorization because PyQGIS is not available.")
-            return self._mock_vectorize(raster_path)
-
-        output_vector = raster_path.replace(".tif", ".gpkg")
-        
         try:
-            print(f"Vectorizing {raster_path} to {output_vector} using gdal:polygonize...")
-            params = {
-                'INPUT': raster_path,
-                'BAND': 1,
-                'FIELD': 'class',
-                'EIGHT_CONNECTEDNESS': False,
-                'OUTPUT': output_vector
-            }
-            # Exécution réelle de l'algorithme de QGIS
-            processing.run("gdal:polygonize", params)
-            print("Vectorization complete.")
-            return output_vector
+            print(f"Vectorizing {raster_path} using rasterio...")
+            with rasterio.open(raster_path) as src:
+                image = src.read(1)
+                # Utilise la transformation de l'image pour obtenir des coordonnées géographiques
+                results = (
+                    {'properties': {'class': v}, 'geometry': s}
+                    for i, (s, v) in enumerate(
+                        shapes(image, mask=None, transform=src.transform)
+                    )
+                )
+            
+            features_geojson = []
+            for result in results:
+                geom = shape(result['geometry'])
+                feature = {
+                    "type": "Feature",
+                    "properties": result['properties'],
+                    "geometry": geom.__geo_interface__
+                }
+                features_geojson.append(feature)
+            
+            print(f"Vectorization complete. Found {len(features_geojson)} features.")
+            return {"type": "FeatureCollection", "features": features_geojson}
         except Exception as e:
             print(f"❌ Error during vectorization: {e}")
             raise e
 
-    def read_vector_as_geojson(self, vector_path: str, analysis_type: str = None) -> dict:
+    def add_class_labels(self, geojson_data: dict, analysis_type: str = None) -> dict:
         """
-        Reads a Geopackage/Shapefile and returns it as a GeoJSON dictionary.
+        Adds human-readable labels to a GeoJSON FeatureCollection for landcover analysis.
         """
-        if not self.has_qgis or not os.path.exists(vector_path):
-            print("⚠️ Skipping GeoJSON conversion because vector file is missing.")
-            return self._mock_geojson()
-
-        try:
-            # Charger la couche vecteur avec QGIS
-            layer = QgsVectorLayer(vector_path, "result_layer", "ogr")
-            if not layer.isValid():
-                raise Exception(f"Failed to load vector layer: {vector_path}")
-            
-            # Récupérer les entités et les convertir en GeoJSON
-            features_geojson = []
-            for feature in layer.getFeatures():
-                feature_json = json.loads(feature.asJson())
-                # Si c'est une analyse landcover, ajouter le label de la classe
-                if analysis_type == 'landcover' and 'class' in feature_json['properties']:
-                    class_id = feature_json['properties']['class']
-                    feature_json['properties']['class_label'] = self.landcover_labels.get(class_id, 'unknown')
-                features_geojson.append(feature_json)
-            return {"type": "FeatureCollection", "features": features_geojson}
-        except Exception as e:
-            print(f"❌ Error reading vector file as GeoJSON: {e}")
-            raise e
+        if analysis_type != 'landcover':
+            return geojson_data
+        
+        for feature in geojson_data['features']:
+            class_id = feature['properties'].get('class')
+            feature['properties']['class_label'] = self.landcover_labels.get(class_id, 'unknown')
+        return geojson_data
 
     def create_raster_preview(self, raster_path: str, analysis_type: str = None) -> str:
         """
@@ -133,28 +115,3 @@ class GeoService:
         except Exception as e:
             print(f"⚠️ Could not generate raster preview: {e}")
             return None
-
-    def _mock_vectorize(self, raster_path: str) -> str:
-        """Generates a dummy vector file for simulation mode."""
-        output_vector = raster_path.replace(".tif", ".gpkg")
-        with open(output_vector, "w") as f:
-            f.write("dummy vector data")
-        return output_vector
-
-    def _mock_geojson(self) -> dict:
-        """Returns a sample GeoJSON for simulation mode."""
-        return {
-            "type": "FeatureCollection",
-            "name": "mock_results",
-            "crs": {"type": "name", "properties": {"name": "urn:ogc:def:crs:EPSG::4326"}},
-            "features": [
-                {
-                    "type": "Feature",
-                    "properties": {"class": 1},
-                    "geometry": {
-                        "type": "Polygon",
-                        "coordinates": [[[25.0, -2.0], [25.1, -2.0], [25.1, -2.1], [25.0, -2.1], [25.0, -2.0]]]
-                    }
-                }
-            ]
-        }

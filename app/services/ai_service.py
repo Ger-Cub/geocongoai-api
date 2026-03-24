@@ -7,71 +7,58 @@ import shutil
 import hashlib
 import time
 from typing import List
-from pystac_client import Client
 import numpy as np
-from odc.stac import stac_load
+import ee
+import zipfile
+import requests
+import io
 
 # Importation de l'architecture Prithvi depuis transformers
-from transformers import AutoImageProcessor, MaskedAutoencoderForViT, SegformerForSemanticSegmentation
+from transformers import AutoImageProcessor, SegformerForSemanticSegmentation
 
+from google.cloud import aiplatform
+from google.cloud import storage
 
 from ultralytics import SAM
 
 class AIService:
     def __init__(self):
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
-        self.models_dir = "/app/models"
+        self.models_dir = os.getenv("MODELS_DIR", "./models")
         self.satellite_cache_dir = os.path.join(self.models_dir, "satellite_cache")
         os.makedirs(self.satellite_cache_dir, exist_ok=True)
 
-        self.prithvi_path = os.path.join(self.models_dir, "prithvi/Prithvi_EO_V2_600M_TL.pt")
         self.sam2_path = os.path.join(self.models_dir, "sam2/sam2_l.pt")
         self.landcover_path = os.path.join(self.models_dir, "landcover/segformer-b0-finetuned-ade-512-512")
         
-        # --- Chargement du modèle Prithvi ---
-        self.prithvi_model = None
-        self.prithvi_processor = None
-        if os.path.exists(self.prithvi_path):
-            try:
-                print(f"Loading Prithvi model from {self.prithvi_path}...")
-                self.prithvi_processor = AutoImageProcessor.from_pretrained("HuggingFaceM4/prithvi-eo-v2")
-                self.prithvi_model = MaskedAutoencoderForViT.from_pretrained(self.prithvi_path, ignore_mismatched_sizes=True)
-                self.prithvi_model.to(self.device)
-                print("Prithvi model loaded successfully.")
-            except Exception as e:
-                print(f"⚠️ Error loading Prithvi model: {e}")
-        else:
-            print(f"Warning: Prithvi model NOT found at {self.prithvi_path}")
+        # --- Configuration Vertex AI pour Prithvi ---
+        self.project_id = os.getenv("GCP_PROJECT_ID")
+        self.location = os.getenv("GCP_REGION")
+        self.gcs_bucket_name = os.getenv("MODELS_BUCKET")
 
-        # Load SAM 2 model using Ultralytics
+        # IDs for the Vertex AI Endpoints
+        self.prithvi_endpoint_id = os.getenv("VERTEX_PRITHVI_ENDPOINT_ID")
+        self.sam_endpoint_id = os.getenv("VERTEX_SAM_ENDPOINT_ID")
+        self.landcover_endpoint_id = os.getenv("VERTEX_LANDCOVER_ENDPOINT_ID")
+        
+        if self.project_id and self.location:
+            aiplatform.init(project=self.project_id, location=self.location)
+            print("GCP AI Platform client initialized.")
+            
+            # Initialisation de Google Earth Engine avec le même projet GCP
+            try:
+                ee.Initialize(project=self.project_id)
+                print("🌍 Google Earth Engine initialized successfully.")
+            except Exception as e:
+                print(f"⚠️ Earth Engine initialization failed (API might not be enabled or authenticated): {e}")
+            
+        # All models are now externalized, no local loading needed.
+        self.prithvi_model = None 
         self.sam_model = None
-        if os.path.exists(self.sam2_path):
-            try:
-                print(f"Loading SAM 2 from {self.sam2_path}...")
-                self.sam_model = SAM(self.sam2_path)
-                print("SAM 2 loaded successfully.")
-            except Exception as e:
-                print(f"⚠️ Error loading SAM 2: {e}")
-                print("Continuing with AI Service in Simulation Mode for SAM 2.")
-        else:
-            print(f"Warning: SAM 2 model NOT found at {self.sam2_path}")
-
-        # --- Chargement du modèle Landcover (Exemple avec SegFormer) ---
         self.landcover_model = None
-        self.landcover_processor = None
-        if os.path.exists(self.landcover_path):
-            try:
-                print(f"Loading Landcover model from {self.landcover_path}...")
-                self.landcover_processor = AutoImageProcessor.from_pretrained(self.landcover_path)
-                self.landcover_model = SegformerForSemanticSegmentation.from_pretrained(self.landcover_path)
-                self.landcover_model.to(self.device)
-                print("Landcover model loaded successfully.")
-            except Exception as e:
-                print(f"⚠️ Error loading Landcover model: {e}")
-        else:
-            print(f"Warning: Landcover model NOT found at {self.landcover_path}")
-
-        print(f"AI Service initialized on {self.device}")
+        print("AI Service initialized. All model inferences are delegated to Vertex AI Endpoints.")
+        if not all([self.prithvi_endpoint_id, self.sam_endpoint_id, self.landcover_endpoint_id]):
+            print("⚠️ WARNING: One or more Vertex AI endpoint IDs are not set. Corresponding analyses will fail.")
 
     def cleanup_cache(self, max_age_days: int = 30):
         """
@@ -113,73 +100,100 @@ class AIService:
 
     async def fetch_satellite_data(self, bbox: List[float], time_range: str = "2023-01-01/2023-12-31", analysis_type: str = None) -> str:
         """
-        Searches and downloads Sentinel-2 multispectral data for a given Bbox using Microsoft Planetary Computer.
-        Returns the path to the downloaded GeoTIFF.
+        Searches and downloads Sentinel-2 harmonized data using Google Earth Engine.
+        GEE handles mosaicking and cloud masking server-side.
         """
-        print(f"Searching for satellite data in bbox {bbox}...")
+        print(f"Searching for satellite data in bbox {bbox} via Earth Engine...")
 
-        # Sélectionne les bandes en fonction du type d'analyse pour optimiser le téléchargement
+        # Mapping des bandes Sentinel-2 sur Earth Engine
         if analysis_type == 'landcover':
-            bands = ['red', 'green', 'blue']
+            bands = ['B4', 'B3', 'B2'] # RGB (Red, Green, Blue)
         else:
-            # Bandes nécessaires pour Prithvi
-            bands = ['blue', 'green', 'red', 'nir08', 'swir16', 'swir22']
+            # Bandes Prithvi: Blue, Green, Red, NIR, SWIR1, SWIR2
+            bands = ['B2', 'B3', 'B4', 'B8', 'B11', 'B12'] 
 
-        # 1. Générer une clé de cache unique basée sur les paramètres de la requête
         cache_key_str = f"{bbox}-{time_range}-{','.join(bands)}"
         cache_filename = hashlib.sha256(cache_key_str.encode()).hexdigest() + ".tif"
         cached_path = os.path.join(self.satellite_cache_dir, cache_filename)
 
-        # 2. Vérifier si la donnée est déjà en cache
         if os.path.exists(cached_path):
             print(f"✅ Cache hit! Using cached satellite data: {cached_path}")
-            # Créer un répertoire temporaire et y copier le fichier pour une gestion cohérente
             temp_dir = tempfile.mkdtemp(prefix="geocongo_cached_")
             temp_path = os.path.join(temp_dir, os.path.basename(cached_path))
             shutil.copy(cached_path, temp_path)
             return temp_path, temp_dir
 
-        print("⚠️ Cache miss. Fetching data from Planetary Computer...")
-        catalog = Client.open("https://planetarycomputer.microsoft.com/api/stac/v1")
+        print("⚠️ Cache miss. Fetching optimized image from Google Earth Engine...")
+        
+        # Créer la géométrie GEE
+        region = ee.Geometry.BBox(bbox[0], bbox[1], bbox[2], bbox[3])
+        
+        # Créer le composite d'images (Mosaïque avec un minimum de nuages)
+        start_date, end_date = time_range.split('/')
+        collection = (ee.ImageCollection("COPERNICUS/S2_SR_HARMONIZED")
+                      .filterBounds(region)
+                      .filterDate(start_date, end_date)
+                      .filter(ee.Filter.lt("CLOUDY_PIXEL_PERCENTAGE", 10))
+                      .sort("CLOUDY_PIXEL_PERCENTAGE"))
 
-        search = catalog.search(
-            collections=["sentinel-2-l2a"],
-            bbox=bbox,
-            datetime=time_range,
-            query={"eo:cloud_cover": {"lt": 10}},
-            sortby=[{"field": "properties.eo:cloud_cover", "direction": "asc"}]
-        )
+        # Prendre la meilleure image et sélectionner uniquement les bandes requises
+        image = collection.first().select(bands)
+        
+        # Générer l'URL de téléchargement direct depuis les serveurs de Google
+        try:
+            url = image.getDownloadURL({
+                'scale': 10,
+                'crs': 'EPSG:4326',
+                'region': region,
+                'format': 'GEO_TIFF'
+            })
+        except Exception as e:
+            raise Exception(f"Failed to query Earth Engine. Is the region too large? Error: {e}")
 
-        items = list(search.get_items())
-        if not items:
-            raise Exception("No suitable satellite images found for the given area and time range.")
-
-        # Picking the best item (lowest cloud cover)
-        item = items[0]
-        print(f"Found best image: {item.id} with {item.properties['eo:cloud_cover']}% cloud cover")
-
-        # Création d'un chemin de fichier unique dans le répertoire temporaire fourni
         temp_dir = tempfile.mkdtemp(prefix="geocongo_")
-        download_path = os.path.join(temp_dir, f"sentinel_{item.id}.tif")
+        download_path = os.path.join(temp_dir, "gee_download.tif")
 
-        print(f"Loading bands {bands} using odc-stac...")
-        ds = stac_load(
-            [item],
-            bands=bands,
-            bbox=bbox,
-            resolution=10,
-            chunks={'x': 2048, 'y': 2048} # Active le traitement parallèle par blocs
-        )
+        # Télécharger et extraire. GEE envoie un ZIP contenant le(s) raster(s)
+        response = requests.get(url)
+        with zipfile.ZipFile(io.BytesIO(response.content)) as z:
+            extracted_tifs = [f for f in z.namelist() if f.endswith('.tif')]
+            z.extractall(temp_dir)
+            # GEE consolide souvent le tout dans un seul "download.tif" avec les multiples bandes
+            source_tif = os.path.join(temp_dir, extracted_tifs[0])
+            shutil.move(source_tif, download_path)
 
-        # Sauvegarder le dataset chargé en tant que GeoTIFF
-        ds.to_array(dim="bands").rio.to_raster(download_path, tiled=True, lock=True)
-
-        # 3. Mettre en cache le fichier téléchargé pour une utilisation future
         print(f"Saving downloaded file to cache: {cached_path}")
         shutil.copy(download_path, cached_path)
         print(f"Data saved to {download_path}")
 
         return download_path, temp_dir
+
+    async def _call_vertex_endpoint(self, endpoint_id: str, sat_data_path: str, output_raster_path: str):
+        """Helper function to call a Vertex AI endpoint with the GCS-to-GCS pattern."""
+        print(f"Calling Vertex AI Endpoint {endpoint_id}...")
+        
+        storage_client = storage.Client()
+        bucket = storage_client.bucket(self.gcs_bucket_name)
+        
+        input_blob_name = f"tmp_inputs/{uuid.uuid4()}.tif"
+        output_blob_name = f"tmp_outputs/{uuid.uuid4()}.tif"
+        
+        input_blob = bucket.blob(input_blob_name)
+        input_blob.upload_from_filename(sat_data_path)
+        
+        input_uri = f"gs://{self.gcs_bucket_name}/{input_blob_name}"
+        output_uri = f"gs://{self.gcs_bucket_name}/{output_blob_name}"
+        
+        endpoint = aiplatform.Endpoint(endpoint_id)
+        instances = [{"input_uri": input_uri, "output_uri": output_uri}]
+        endpoint.predict(instances=instances)
+        
+        bucket.blob(output_blob_name).download_to_filename(output_raster_path)
+        
+        input_blob.delete()
+        bucket.blob(output_blob_name).delete()
+        
+        print(f"Classification raster downloaded from Vertex AI to {output_raster_path}")
 
     async def run_inference(self, bbox: List[float], analysis_type: str) -> str:
         """
@@ -199,87 +213,20 @@ class AIService:
             print(f"Running {analysis_type} inference on {sat_data_path}...")
 
             # Logique d'inférence pour les différents types d'analyse
-            if analysis_type in ['minéraux', 'mines'] and self.prithvi_model:
-                print("Using Prithvi model for inference...")
-                with rasterio.open(sat_data_path) as src:
-                    image_array = src.read() # Lit les bandes dans un tableau numpy. Shape: (bands, height, width)
-                    src_profile = src.profile # Sauvegarde les métadonnées géo (CRS, transform, etc.)
+            if analysis_type in ['minéraux', 'mines']:
+                if not self.prithvi_endpoint_id:
+                    raise ValueError("Prithvi Vertex AI endpoint ID is not configured.")
+                await self._call_vertex_endpoint(self.prithvi_endpoint_id, sat_data_path, output_raster)
 
-                # Prétraitement de l'image pour le modèle
-                inputs = self.prithvi_processor(images=image_array, return_tensors="pt").to(self.device)
+            elif analysis_type == 'failles':
+                if not self.sam_endpoint_id:
+                    raise ValueError("SAM Vertex AI endpoint ID is not configured.")
+                await self._call_vertex_endpoint(self.sam_endpoint_id, sat_data_path, output_raster)
 
-                # Exécution de l'inférence
-                with torch.no_grad():
-                    outputs = self.prithvi_model(**inputs)
-
-                # --- Début du Post-Traitement ---
-                print("Inference complete. Post-processing the output...")
-
-                classification_map = torch.argmax(outputs.logits, dim=1).squeeze()
-                classification_map_np = classification_map.cpu().numpy().astype(rasterio.uint8)
-
-                dst_profile = src_profile.copy()
-                dst_profile.update({
-                    'count': 1,
-                    'dtype': 'uint8',
-                    'compress': 'lzw'
-                })
-
-                with rasterio.open(output_raster, 'w', **dst_profile) as dst:
-                    dst.write(classification_map_np, 1)
-                print(f"Classification raster saved to {output_raster}")
-
-            elif analysis_type == 'failles' and self.sam_model:
-                print("Using SAM model for inference...")
-                with rasterio.open(sat_data_path) as src:
-                    src_profile = src.profile # Sauvegarde les métadonnées géo
-
-                # Exécuter la prédiction SAM. 'predict' génère automatiquement des masques.
-                results = self.sam_model.predict(sat_data_path, device=self.device)
-
-                if not results or not results[0].masks:
-                    raise Exception("SAM model did not detect any features (faults).")
-
-                # Fusionner tous les masques détectés en une seule carte binaire
-                # results[0].masks.data est un tenseur (N, H, W) où N est le nombre de masques
-                merged_mask = torch.sum(results[0].masks.data, dim=0).clamp(0, 1)
-
-                # Convertir en NumPy et préparer pour la sauvegarde
-                mask_np = merged_mask.cpu().numpy().astype(rasterio.uint8)
-
-                dst_profile = src_profile.copy()
-                dst_profile.update({'count': 1, 'dtype': 'uint8', 'compress': 'lzw'})
-
-                with rasterio.open(output_raster, 'w', **dst_profile) as dst:
-                    dst.write(mask_np, 1)
-                print(f"Fault detection raster saved to {output_raster}")
-
-            elif analysis_type == 'landcover' and self.landcover_model:
-                print("Using Landcover (SegFormer) model for inference...")
-                # Les modèles de segmentation classiques utilisent souvent des images RGB
-                # Nous allons lire uniquement les 3 premières bandes (Red, Green, Blue)
-                # L'ordre est garanti par notre fetch_satellite_data optimisé
-                with rasterio.open(sat_data_path) as src:
-                    image_array = src.read() # Lit les 3 bandes [R, G, B]
-                    src_profile = src.profile
-
-                # Prétraitement et inférence
-                inputs = self.landcover_processor(images=image_array, return_tensors="pt").to(self.device)
-                with torch.no_grad():
-                    outputs = self.landcover_model(**inputs)
-
-                # Post-traitement: argmax sur les logits pour obtenir la carte de classification
-                logits = outputs.logits.cpu()
-                # Redimensionner la sortie à la taille de l'image originale
-                upsampled_logits = torch.nn.functional.interpolate(logits, size=image_array.shape[1:], mode="bilinear", align_corners=False)
-                classification_map = upsampled_logits.argmax(dim=1).squeeze()
-                classification_map_np = classification_map.numpy().astype(rasterio.uint8)
-
-                # Sauvegarder le raster de classification
-                dst_profile.update({'count': 1, 'dtype': 'uint8', 'compress': 'lzw'})
-                with rasterio.open(output_raster, 'w', **dst_profile) as dst:
-                    dst.write(classification_map_np, 1)
-                print(f"Landcover classification raster saved to {output_raster}")
+            elif analysis_type == 'landcover':
+                if not self.landcover_endpoint_id:
+                    raise ValueError("Landcover Vertex AI endpoint ID is not configured.")
+                await self._call_vertex_endpoint(self.landcover_endpoint_id, sat_data_path, output_raster)
 
             else:
                 # Si aucun modèle n'est disponible ou si le type d'analyse n'est pas géré
