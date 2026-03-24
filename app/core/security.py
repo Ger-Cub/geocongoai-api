@@ -2,7 +2,7 @@ from fastapi import Security, HTTPException, status
 from fastapi.security.api_key import APIKeyHeader
 import os
 
-API_KEY = os.getenv("GEOCONGO_API_KEY", "geocongo_secret_key_2026")
+API_KEY = os.getenv("GEOCONGO_API_KEY", "test_key_geocongo")
 API_KEY_NAME = "X-API-Key"
 api_key_header = APIKeyHeader(name=API_KEY_NAME, auto_error=False)
 

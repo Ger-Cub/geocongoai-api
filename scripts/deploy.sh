@@ -1,125 +1,78 @@
 #!/bin/bash
-set -e
+set -e # Arrete le script en cas d'erreur
 
-# =========================================================
-# Configuration globale
-# =========================================================
+# --- Configuration ---
 PROJECT_ID="geocongoai-api"
-REGION="europe-west1"
-IMAGE_NAME="gcr.io/${PROJECT_ID}/geocongoai-api"
-MODELS_BUCKET="geocongoai-models-storage"
-WORKER_SA_EMAIL="geocongo-worker-sa@${PROJECT_ID}.iam.gserviceaccount.com"
+SERVICE_NAME="geocongoai-api"
+REGION="europe-west4" # Region avec support GPU (Pays-Bas)
+IMAGE_NAME="gcr.io/$PROJECT_ID/$SERVICE_NAME"
+MODELS_BUCKET="geocongo-models-bucket" # ⬅️ IMPORTANT: Remplacez par le nom EXACT de votre bucket GCS
+WORKER_SA_EMAIL="geocongo-worker-sa@${PROJECT_ID}.iam.gserviceaccount.com" # Remplacez si vous utilisez un autre nom
+PRITHVI_ENDPOINT_ID="YOUR_PRITHVI_ENDPOINT_ID" # ⬅️ Remplacer par l'ID de l'endpoint Prithvi
+SAM_ENDPOINT_ID="YOUR_SAM_ENDPOINT_ID" # ⬅️ Remplacer par l'ID de l'endpoint SAM
+LANDCOVER_ENDPOINT_ID="YOUR_LANDCOVER_ENDPOINT_ID" # ⬅️ Remplacer par l'ID de l'endpoint Landcover
 
-# =========================================================
-# Build de l'image Docker (unique pour tous les services)
-# =========================================================
-echo "🚧 Building Docker image: $IMAGE_NAME"
-gcloud builds submit --tag "$IMAGE_NAME" --project="$PROJECT_ID" .
+# --- 1. Build de l'image Docker ---
+echo "Building image $IMAGE_NAME..."
+gcloud builds submit --tag $IMAGE_NAME --project=$PROJECT_ID .
 
-# =========================================================
-# Fonction de déploiement des workers
-# =========================================================
-deploy_worker() {
-    local SERVICE_NAME=$1
-    local MODE=$2
-
-    # Mapping MODE -> ressources
-    case "$MODE" in
-        landcover)
-            CPU="2"
-            MEMORY="4Gi"
-            ;;
-        detection)
-            CPU="4"
-            MEMORY="8Gi"
-            ;;
-        minerals)
-            CPU="4"
-            MEMORY="16Gi"
-            ;;
-        *)
-            echo "❌ MODE inconnu: $MODE"
-            exit 1
-            ;;
-    esac
-
-    echo "----------------------------------------------------" >&2
-    echo "🚀 Deploying Worker: $SERVICE_NAME" >&2
-    echo "   Mode: $MODE | CPU: $CPU | Memory: $MEMORY" >&2
-    echo "----------------------------------------------------" >&2
-
-    gcloud beta run deploy "$SERVICE_NAME" \
-        --project="$PROJECT_ID" \
-        --image="$IMAGE_NAME" \
-        --platform=managed \
-        --region="$REGION" \
-        --no-allow-unauthenticated \
-        --cpu="$CPU" \
-        --memory="$MEMORY" \
-        --execution-environment=gen2 \
-        --cpu-boost \
-        --timeout=3600s \
-        --port=8080 \
-        --add-volume=name=models-volume,type=cloud-storage,bucket="${MODELS_BUCKET}" \
-        --add-volume-mount=volume=models-volume,mount-path=/app/models \
-        --set-env-vars="ENABLED_SERVICE=${MODE},DEVICE=cpu,GEOCONGO_API_KEY=test_key_geocongo,GCP_PROJECT_ID=${PROJECT_ID},GCP_REGION=${REGION},CLOUD_TASKS_QUEUE=geocongo-results-queue,CLOUD_TASKS_WORKER_SA_EMAIL=${WORKER_SA_EMAIL}" >&2
-
-    WORKER_URL=$(gcloud run services describe "$SERVICE_NAME" \
-        --platform=managed \
-        --region="$REGION" \
-        --format='value(status.url)')
-
-    echo "✅ $SERVICE_NAME deployed at: $WORKER_URL" >&2
-    echo "$WORKER_URL"
-}
-
-# =========================================================
-# Déploiement des Workers
-# =========================================================
-# - Landcover: SKIPPED (user request)
-# WORKER_LANDCOVER_URL=$(deploy_worker "geocongoai-landcover" "landcover")
-WORKER_LANDCOVER_URL="none"
-
-# - Detection:
-WORKER_DETECTION_URL=$(deploy_worker "geocongoai-detection" "detection")
-
-# - Minerals:
-WORKER_MINERALS_URL=$(deploy_worker "geocongoai-minerals" "minerals")
-
-# =========================================================
-# Déploiement du Router (API principale)
-# =========================================================
-ROUTER_SERVICE_NAME="geocongoai-api"
-
-echo "----------------------------------------------------"
-echo "🚀 Deploying Router: $ROUTER_SERVICE_NAME"
-echo "----------------------------------------------------"
-echo "Workers linked:"
-echo " - Landcover: $WORKER_LANDCOVER_URL"
-echo " - Detection: $WORKER_DETECTION_URL"
-echo " - Minerals:  $WORKER_MINERALS_URL"
-
-gcloud run deploy "$ROUTER_SERVICE_NAME" \
-    --project="$PROJECT_ID" \
-    --image="$IMAGE_NAME" \
-    --platform=managed \
-    --region="$REGION" \
-    --allow-unauthenticated \
-    --cpu="1" \
-    --memory="1Gi" \
-    --execution-environment=gen2 \
+# --- 2. Déploiement initial (ou mise à jour) ---
+echo "Deploying CPU-only service '$SERVICE_NAME' to Cloud Run..."
+gcloud run deploy $SERVICE_NAME \
+    --project=$PROJECT_ID \
+    --image $IMAGE_NAME \
+    --platform managed \
+    --region $REGION \
+    --no-allow-unauthenticated \
+    --cpu=2 \
+    --memory=4Gi \
+    --execution-environment gen2 \
     --timeout=600s \
     --port=8080 \
-    --set-env-vars="ENABLED_SERVICE=router,DEVICE=cpu,GEOCONGO_API_KEY=test_key_geocongo,GCP_PROJECT_ID=${PROJECT_ID},GCP_REGION=${REGION},CLOUD_TASKS_QUEUE=geocongo-results-queue,CLOUD_TASKS_WORKER_SA_EMAIL=${WORKER_SA_EMAIL},WORKER_URL_LANDCOVER=${WORKER_LANDCOVER_URL},WORKER_URL_DETECTION=${WORKER_DETECTION_URL},WORKER_URL_MINERALS=${WORKER_MINERALS_URL},CLOUD_TASKS_WORKER_URL=${WORKER_DETECTION_URL}"
+    --set-env-vars "GEOCONGO_API_KEY=test_key_geocongo,GCP_PROJECT_ID=${PROJECT_ID},GCP_REGION=${REGION},MODELS_BUCKET=${MODELS_BUCKET},CLOUD_TASKS_QUEUE=geocongo-results-queue,CLOUD_TASKS_WORKER_SA_EMAIL=${WORKER_SA_EMAIL},VERTEX_PRITHVI_ENDPOINT_ID=${PRITHVI_ENDPOINT_ID},VERTEX_SAM_ENDPOINT_ID=${SAM_ENDPOINT_ID},VERTEX_LANDCOVER_ENDPOINT_ID=${LANDCOVER_ENDPOINT_ID}"
 
-# =========================================================
-# Fin
-# =========================================================
-echo "----------------------------------------------------"
-echo "✅ DEPLOYMENT COMPLET AVEC SUCCÈS"
-echo "Main API URL:"
-gcloud run services describe "$ROUTER_SERVICE_NAME" \
-    --platform=managed \
-    --region="$REGION" \
-    --format='value(status.url)'
-echo "----------------------------------------------------"
+echo "✅ Initial deployment command sent. Fetching service URL..."
+
+# --- 3. Récupération de l'URL et redéploiement pour le worker ---
+SERVICE_URL=$(gcloud run services describe $SERVICE_NAME --platform managed --region $REGION --format 'value(status.url)')
+
+if [ -z "$SERVICE_URL" ]; then
+    echo "❌ Could not retrieve service URL. Aborting."
+    exit 1
+fi
+
+echo "Service URL is: $SERVICE_URL"
+echo "Re-deploying to set the CLOUD_TASKS_WORKER_URL environment variable..."
+
+gcloud run services update $SERVICE_NAME \
+    --platform managed \
+    --region $REGION \
+    --update-env-vars "CLOUD_TASKS_WORKER_URL=${SERVICE_URL}" \
+    --project=$PROJECT_ID
+
+echo "✅ Service updated with the correct worker URL. The new revision is being deployed."
+echo "Starting health check..."
+
+# --- 4. Health Check ---
+HEALTH_URL="${SERVICE_URL}/health"
+API_KEY="test_key_geocongo" # La clé API définie dans les variables d'environnement
+
+MAX_ATTEMPTS=90 # Attendre au maximum 15 minutes (90 * 10s) pour laisser le temps aux modèles de charger
+SLEEP_SECONDS=5
+
+for (( i=1; i<=MAX_ATTEMPTS; i++ )); do
+    echo "Attempt $i/$MAX_ATTEMPTS: Checking health at $HEALTH_URL..."
+    # Utiliser curl pour interroger le point d'entrée /health avec la clé API
+    # -s pour silencieux, -f pour échouer si le code HTTP n'est pas 2
+    response=$(curl -s -f -H "X-API-Key: $API_KEY" "$HEALTH_URL" || echo "failed")
+
+    if [[ "$response" != "failed" && $(echo "$response" | grep '"status": "healthy"') ]]; then
+        echo "✅ Service is healthy and running!"
+        exit 0
+    fi
+
+    sleep $SLEEP_SECONDS
+done
+
+echo "❌ Service did not become healthy after $MAX_ATTEMPTS attempts."
+exit 1

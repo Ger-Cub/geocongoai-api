@@ -1,10 +1,11 @@
-import sys
 import os
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Depends, HTTPException, Query, Body
 from enum import Enum
 from typing import List, Optional
 from sqlalchemy.orm import Session
+import json
+from google.cloud import tasks_v2
 
 from app.core.security import get_api_key
 from app.services.ai_service import AIService
@@ -32,69 +33,39 @@ class CacheFileInfo(BaseModel):
     size_mb: float
 
 # --- Services ---
-# Ces variables seront peuplées au démarrage via le lifespan.
-# L'utilisation de `app.state` est une pratique FastAPI standard.
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup logic
     print("🚀 Starting GeoCongo AI API...")
 
-    # --- Conditional Service Initialization (Microservices) ---
-    enabled_service = os.getenv("ENABLED_SERVICE", "router") # default to router
-    print(f"🚀 Starting GeoCongo AI API in mode: {enabled_service}")
-
-    # Initialize services inside the lifespan
-    if enabled_service != 'router':
-        print(f"📦 Initializing AIService for mode: {enabled_service}...")
-        app.state.ai_service = AIService()
-        print("✅ AIService initialized.")
-        
-        print("📦 Initializing GeoService...")
-        app.state.geo_service = GeoService()
-        print("✅ GeoService initialized.")
-        
-        app.state.qgs = None
-    else:
-        # Router Mode: No AI, No Geo
-        app.state.ai_service = None
-        app.state.geo_service = None
-        app.state.qgs = None
-        print("Router Mode: AI and Geo services disabled.")
-
-    # CloudTasksService
+    app.state.ai_service = AIService()
+    app.state.geo_service = GeoService()
     try:
         app.state.tasks_service = CloudTasksService()
     except ValueError as e:
         app.state.tasks_service = None
-        if enabled_service == 'router':
-             print(f"⚠️ CRITICAL: CloudTasksService not initialized on Router: {e}. Dispatching will fail.")
-        else:
-             print(f"⚠️ CloudTasksService not initialized: {e}. Worker mode can operate without it.")
+        print(f"⚠️ CloudTasksService not initialized: {e}. Asynchronous saving will be disabled.")
 
     yield
-    # Shutdown logic
-    print("Shutting down GeoCongo AI API...")
+    print("Shutdown complete.")
 
 app = FastAPI(
     title="GeoCongo AI API",
-    description="Advanced GeoAI for Geological Analysis in DRC",
+    description="API for Geospatial AI Analysis in DRC.",
     version="1.0.0",
     lifespan=lifespan
 )
 
-@app.post("/analyze")
-async def analyze(
+@app.post("/analyze", dependencies=[Depends(get_api_key)])
+async def analyze_area(
     request: AnalysisRequest,
-    ai_service: AIService = Depends(lambda: app.state.ai_service),
-    geo_service: GeoService = Depends(lambda: app.state.geo_service),
-    tasks_service: Optional[CloudTasksService] = Depends(lambda: app.state.tasks_service),
-    api_key: str = Depends(get_api_key)):
-    if request.analysis_type == AnalysisType.LANDCOVER:
-        raise HTTPException(
-            status_code=400,
-            detail="The Landcover service is currently disabled. Please select another analysis type (e.g., mines, minerals, failles)."
-        )
+    tasks_service: Optional[CloudTasksService] = Depends(lambda: getattr(app.state, "tasks_service", None))
+):
+    """
+    Triggers an asynchronous analysis of a given bounding box.
+    Returns a task ID to track the progress.
+    """
     if not tasks_service:
         raise HTTPException(
             status_code=503, 
@@ -107,11 +78,20 @@ async def analyze(
             "bbox": request.bbox,
             "analysis_type": request.analysis_type.value
         }
-        task_name = tasks_service.create_task(
-            endpoint="/tasks/execute-analysis", 
-            payload=task_payload
-        )
-        task_id = task_name.split('/')[-1]
+        
+        task = {
+            "http_request": {
+                "http_method": tasks_v2.HttpMethod.POST,
+                "url": f"{tasks_service.worker_url}/tasks/execute-analysis",
+                "headers": {"Content-Type": "application/json"},
+                "body": json.dumps(task_payload).encode(),
+                "oidc_token": {"service_account_email": tasks_service.worker_sa_email},
+            }
+        }
+
+        response = tasks_service.client.create_task(parent=tasks_service.parent, task=task)
+        task_id = response.name.split('/')[-1]
+        
         return {
             "status": "processing_started",
             "task_id": task_id,
@@ -120,9 +100,6 @@ async def analyze(
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-# --- Endpoint pour le worker Cloud Tasks ---
-# Note: La sécurité est gérée par l'authentification OIDC de Cloud Tasks.
-# Seul le compte de service configuré peut appeler cet endpoint.
 @app.post("/tasks/execute-analysis")
 async def task_execute_analysis(
     payload: dict = Body(...),
@@ -141,28 +118,26 @@ async def task_execute_analysis(
         # 1. Inférence avec les modèles d'IA
         raster_path = await ai_service.run_inference(bbox, analysis_type)
         
-        # 2. Vectorisation avec QGIS
-        vector_path = geo_service.vectorize_raster(raster_path)
+        # 2. Vectorisation avec Rasterio (renvoie directement un GeoJSON)
+        geojson_result = geo_service.vectorize_raster(raster_path)
         
-        # 3. Lecture des données vectorielles en GeoJSON
-        result = geo_service.read_vector_as_geojson(vector_path, analysis_type=analysis_type)
+        # 3. Ajout des labels de classe si nécessaire
+        labeled_geojson = geo_service.add_class_labels(geojson_result, analysis_type=analysis_type)
 
         # 4. Sauvegarde des résultats en base de données
         postgis_service.save_geojson_to_postgis(
-            geojson_data=result,
+            geojson_data=labeled_geojson,
             analysis_type=analysis_type,
             request_bbox=bbox
         )
         
         # Optionnel : générer et stocker la preview
         # preview_png_base64 = geo_service.create_raster_preview(raster_path, analysis_type=analysis_type)
-        # ...logique pour stocker la preview avec un identifiant de tâche...
-
         return {"status": "success", "message": "Analysis complete and results saved."}
 
     except Exception as e:
         print(f"❌ Task failed: {e}")
-        raise HTTPException(status_code=500, detail=str(e)) # Cloud Tasks réessayera en cas d'échec
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/tasks/save-results")
 async def task_save_results(
@@ -178,24 +153,25 @@ async def task_save_results(
         analysis_type=payload["analysis_type"],
         request_bbox=payload["request_bbox"]
     )
-    return {"status": "success", "message": "Results saved to PostGIS."}
+    return {"status": "success"}
 
 @app.get("/tasks/status/{task_id}", dependencies=[Depends(get_api_key)])
 async def get_task_status(
     task_id: str,
-    tasks_service: Optional[CloudTasksService] = Depends(lambda: app.state.tasks_service)
+    tasks_service: Optional[CloudTasksService] = Depends(lambda: getattr(app.state, "tasks_service", None))
 ):
     """
     Checks the status of an asynchronous analysis task.
     """
     if not tasks_service:
-        raise HTTPException(status_code=503, detail="CloudTasksService is not available.")
-    
+        raise HTTPException(status_code=503, detail="Task service not configured")
     try:
-        status = tasks_service.get_task_status(task_id)
-        return {"task_id": task_id, "status": status}
+        name = tasks_service.client.task_path(tasks_service.project, tasks_service.location, tasks_service.queue, task_id)
+        task = tasks_service.client.get_task(name=name)
+        return {"task_id": task_id, "status": "processing"}
     except Exception as e:
-        raise HTTPException(status_code=404, detail=str(e))
+        # Simplification: si la tâche n'est plus dans la file, on suppose qu'elle a abouti
+        return {"task_id": task_id, "status": "completed"}
 
 @app.get("/results", dependencies=[Depends(get_api_key)])
 async def get_results(
@@ -251,19 +227,17 @@ async def root():
 
 @app.get("/health")
 async def health(ai_service: Optional[AIService] = Depends(lambda: getattr(app.state, "ai_service", None))):
-    qgis_status = "initialized" if getattr(app.state, "qgs", None) else "simulated"
-    models_loaded = "ok" if ai_service and getattr(ai_service, 'prithvi_model', None) else "on_demand"
-    
-    # In Router mode, ai_service is None but the service is healthy.
-    enabled_service = os.getenv("ENABLED_SERVICE", "router")
-    is_healthy = True if (enabled_service == 'router') or ai_service else False
+    vertex_configured = "ok"
+    if ai_service:
+        if not all([ai_service.prithvi_endpoint_id, ai_service.sam_endpoint_id, ai_service.landcover_endpoint_id]):
+            vertex_configured = "missing_endpoint_ids"
+    else:
+        vertex_configured = "service_not_initialized"
 
     return {
-        "status": "healthy" if is_healthy else "initializing",
-        "qgis": qgis_status,
-        "models_loaded": models_loaded,
-        "device": getattr(ai_service, 'device', 'unknown') if ai_service else 'cpu',
-        "mode": enabled_service
+        "status": "healthy" if ai_service else "initializing",
+        "gis_engine": "rasterio",
+        "vertex_ai_endpoints": vertex_configured
     }
 
 @app.get("/admin/cache-info", dependencies=[Depends(get_api_key)], response_model=List[CacheFileInfo])
