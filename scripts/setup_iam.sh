@@ -2,7 +2,7 @@
 set -e
 
 PROJECT_ID="geocongoai-api"
-MODELS_BUCKET="geocongo-models-bucket" # Remplacez par le nom de votre bucket
+MODELS_BUCKET="geocongoai-models-storage" # Résolu: Utilise le bucket existant
 WORKER_SA_EMAIL="geocongo-worker-sa@${PROJECT_ID}.iam.gserviceaccount.com"
 
 # Récupérer le compte de service par défaut de Compute Engine (utilisé par Vertex AI)
