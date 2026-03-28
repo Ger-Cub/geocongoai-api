@@ -4,7 +4,7 @@ import rasterio
 import numpy as np
 import uuid
 from fastapi import FastAPI, Request, HTTPException
-from transformers import AutoImageProcessor, MaskedAutoencoderForViT, SegformerForSemanticSegmentation
+from transformers import AutoImageProcessor, AutoModelForSemanticSegmentation, AutoModel
 from google.cloud import storage
 from ultralytics import SAM
 
@@ -12,8 +12,8 @@ app = FastAPI()
 
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 # AIP_STORAGE_URI is provided by Vertex AI when deploying a model with artifact-uri
-MODEL_DIR = os.environ.get("AIP_STORAGE_URI", "/app/models")
-MODEL_TYPE = os.environ.get("MODEL_TYPE", "LANDCOVER") # Options: PRITHVI, SAM, LANDCOVER
+MODEL_DIR = os.environ.get("AIP_STORAGE_URI")
+MODEL_TYPE = os.environ.get("MODEL_TYPE") # PRITHVI, SAM, or LANDCOVER
 
 processor = None
 model = None
@@ -21,51 +21,94 @@ model = None
 @app.on_event("startup")
 async def load_model():
     global processor, model
-    print(f"🚀 Loading {MODEL_TYPE} model from {MODEL_DIR} on {DEVICE}...")
     
+    if not MODEL_TYPE or not MODEL_DIR:
+        raise RuntimeError("MODEL_TYPE and AIP_STORAGE_URI must be set as environment variables.")
+
+    print(f"🚀 Loading {MODEL_TYPE} model from {MODEL_DIR} on {DEVICE}...")
+
+def download_gcs_folder(gcs_uri, local_dir):
+    """Downloads a GCS 'folder' to a local directory."""
+    print(f"📥 Downloading artifacts from {gcs_uri} to {local_dir}...")
+    storage_client = storage.Client()
+    bucket_name = gcs_uri.split("/")[2]
+    prefix = "/".join(gcs_uri.split("/")[3:])
+    
+    bucket = storage_client.bucket(bucket_name)
+    blobs = bucket.list_blobs(prefix=prefix)
+    
+    os.makedirs(local_dir, exist_ok=True)
+    count = 0
+    for blob in blobs:
+        if blob.name.endswith("/"): continue # Skip directories
+        # Create local path
+        relative_path = os.path.relpath(blob.name, prefix)
+        local_file_path = os.path.join(local_dir, relative_path)
+        os.makedirs(os.path.dirname(local_file_path), exist_ok=True)
+        blob.download_to_filename(local_file_path)
+        count += 1
+    print(f"✅ Downloaded {count} files.")
+
+@app.on_event("startup")
+async def load_model():
+    global processor, model
+    
+    # Target directory for local model weights
+    local_model_path = "/tmp/model"
+    
+    if MODEL_DIR.startswith("gs://"):
+        download_gcs_folder(MODEL_DIR, local_model_path)
+    else:
+        local_model_path = MODEL_DIR
+
     try:
         if MODEL_TYPE == "PRITHVI":
-            # Expects Prithvi_EO_V2_600M_TL.pt in MODEL_DIR
-            model_path = os.path.join(MODEL_DIR, "Prithvi_EO_V2_600M_TL.pt")
-            # Fallback to current dir if not found (for local testing)
-            if not os.path.exists(model_path):
-                model_path = os.path.join("/app/models/prithvi", "Prithvi_EO_V2_600M_TL.pt")
+            # For Prithvi, the processor can be remote or local. 
+            try:
+                processor = AutoImageProcessor.from_pretrained(local_model_path, trust_remote_code=True)
+            except:
+                processor = AutoImageProcessor.from_pretrained("HuggingFaceM4/prithvi-eo-v2", trust_remote_code=True)
             
-            processor = AutoImageProcessor.from_pretrained("HuggingFaceM4/prithvi-eo-v2")
-            model = MaskedAutoencoderForViT.from_pretrained(model_path, ignore_mismatched_sizes=True)
+            model = AutoModel.from_pretrained(local_model_path, trust_remote_code=True, ignore_mismatched_sizes=True)
             
         elif MODEL_TYPE == "SAM":
-            # Expects sam2_l.pt in MODEL_DIR
-            model_path = os.path.join(MODEL_DIR, "sam2_l.pt")
-            if not os.path.exists(model_path):
-                 model_path = os.path.join("/app/models/sam2", "sam2_l.pt")
+            # Look for .pt file in the directory
+            import glob
+            pt_files = glob.glob(os.path.join(local_model_path, "*.pt"))
+            if not pt_files:
+                # Try recursive search if not flat
+                pt_files = glob.glob(os.path.join(local_model_path, "**/*.pt"), recursive=True)
             
+            if not pt_files:
+                raise RuntimeError(f"No .pt model file found in {local_model_path}")
+            
+            model_path = pt_files[0]
+            print(f"🎯 Loading SAM model from {model_path}...")
             model = SAM(model_path)
             
         elif MODEL_TYPE == "LANDCOVER":
-            # Expects SegFormer files in MODEL_DIR
-            model_path = MODEL_DIR
-            if not os.path.exists(os.path.join(model_path, "config.json")):
-                model_path = "/app/models/landcover/segformer-b0-finetuned-ade-512-512"
-            
-            processor = AutoImageProcessor.from_pretrained(model_path)
-            model = SegformerForSemanticSegmentation.from_pretrained(model_path)
+            processor = AutoImageProcessor.from_pretrained(local_model_path, trust_remote_code=True)
+            model = AutoModelForSemanticSegmentation.from_pretrained(local_model_path, trust_remote_code=True)
         
-        if model and hasattr(model, 'to'):
+        else:
+            raise ValueError(f"Unsupported MODEL_TYPE: {MODEL_TYPE}")
+
+        if hasattr(model, 'to'):
             model.to(DEVICE)
             model.eval()
             
         print(f"✅ {MODEL_TYPE} model loaded successfully.")
     except Exception as e:
         print(f"❌ Error loading {MODEL_TYPE} model: {e}")
+        raise e
 
-@app.get("/health")
+@app.get(os.environ.get("AIP_HEALTH_ROUTE", "/health"))
 def health():
     if model is None:
         raise HTTPException(status_code=503, detail="Model not loaded yet.")
     return {"status": "healthy", "model_type": MODEL_TYPE}
 
-@app.post("/predict")
+@app.post(os.environ.get("AIP_PREDICT_ROUTE", "/predict"))
 async def predict(request: Request):
     body = await request.json()
     instances = body.get("instances", [])
@@ -81,30 +124,38 @@ async def predict(request: Request):
 
     storage_client = storage.Client()
     
-    # Download input from GCS
-    input_bucket = storage_client.bucket(input_gcs_uri.split("/")[2])
-    input_blob = input_bucket.blob("/".join(input_gcs_uri.split("/")[3:]))
-    local_input_path = f"/tmp/{uuid.uuid4()}_input.tif"
-    input_blob.download_to_filename(local_input_path)
-
-    local_output_path = f"/tmp/{uuid.uuid4()}_output.tif"
+    temp_dir = "/tmp"
+    os.makedirs(temp_dir, exist_ok=True)
+    
+    local_input_path = os.path.join(temp_dir, f"{uuid.uuid4()}_input.tif")
+    local_output_path = os.path.join(temp_dir, f"{uuid.uuid4()}_output.tif")
     
     try:
+        # Download input from GCS
+        input_bucket_name = input_gcs_uri.split("/")[2]
+        input_blob_name = "/".join(input_gcs_uri.split("/")[3:])
+        input_bucket = storage_client.bucket(input_bucket_name)
+        input_blob = input_bucket.blob(input_blob_name)
+        input_blob.download_to_filename(local_input_path)
+
         with rasterio.open(local_input_path) as src:
             image_array = src.read()
             src_profile = src.profile
 
+        # --- Prediction logic based on model type ---
         if MODEL_TYPE == "PRITHVI":
             inputs = processor(images=image_array, return_tensors="pt").to(DEVICE)
             with torch.no_grad():
                 outputs = model(**inputs)
+            # Post-process for Prithvi
             classification_map = torch.argmax(outputs.logits, dim=1).squeeze()
             classification_map_np = classification_map.cpu().numpy().astype(rasterio.uint8)
 
         elif MODEL_TYPE == "SAM":
+            # For SAM, we need to provide a point or box, this needs to be adapted
+            # For now, let's assume the goal is to segment everything.
             results = model.predict(local_input_path, device=DEVICE)
             if not results or not results[0].masks:
-                # Binaire vide si rien n'est détecté
                 classification_map_np = np.zeros((src_profile['height'], src_profile['width']), dtype=np.uint8)
             else:
                 merged_mask = torch.sum(results[0].masks.data, dim=0).clamp(0, 1)
@@ -118,6 +169,10 @@ async def predict(request: Request):
             upsampled_logits = torch.nn.functional.interpolate(logits, size=image_array.shape[1:], mode="bilinear", align_corners=False)
             classification_map = upsampled_logits.argmax(dim=1).squeeze()
             classification_map_np = classification_map.numpy().astype(rasterio.uint8)
+            
+        else:
+             raise ValueError(f"Unsupported MODEL_TYPE for prediction: {MODEL_TYPE}")
+
 
         # Save result as GeoTIFF
         dst_profile = src_profile.copy()
@@ -126,8 +181,10 @@ async def predict(request: Request):
             dst.write(classification_map_np, 1)
 
         # Upload result to GCS
-        output_bucket = storage_client.bucket(output_gcs_uri.split("/")[2])
-        output_blob = output_bucket.blob("/".join(output_gcs_uri.split("/")[3:]))
+        output_bucket_name = output_gcs_uri.split("/")[2]
+        output_blob_name = "/".join(output_gcs_uri.split("/")[3:])
+        output_bucket = storage_client.bucket(output_bucket_name)
+        output_blob = output_bucket.blob(output_blob_name)
         output_blob.upload_from_filename(local_output_path)
 
         return {"predictions": [{"status": "success", "output_uri": output_gcs_uri}]}

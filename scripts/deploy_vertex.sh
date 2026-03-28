@@ -31,6 +31,7 @@ deploy_to_vertex() {
         --container-image-uri=$IMAGE_URI \
         --artifact-uri=$ARTIFACT_URI \
         --container-env-vars="MODEL_TYPE=$MODEL_TYPE_EV" \
+        --container-health-route="/health" \
         --format="value(model)")
 
     # 3. Create Endpoint
@@ -54,6 +55,6 @@ deploy_to_vertex() {
 # Note: Les chemins dans le bucket sont sous 'models/'
 deploy_to_vertex "prithvi" "vertex_ai_generic" "gs://$BUCKET_NAME/models/prithvi" "PRITHVI"
 deploy_to_vertex "sam" "vertex_ai_generic" "gs://$BUCKET_NAME/models/sam2" "SAM"
-deploy_to_vertex "landcover" "vertex_ai_generic" "gs://$BUCKET_NAME/models/landcover/segformer-b0-finetuned-ade-512-512" "LANDCOVER"
+# deploy_to_vertex "landcover" "vertex_ai_generic" "gs://$BUCKET_NAME/models/landcover/segformer-b0-finetuned-ade-512-512" "LANDCOVER"
 
 echo "✅ Tous les modèles Vertex AI sont lancés ! Notez bien les Endpoint IDs ci-dessus."
