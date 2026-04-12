@@ -37,7 +37,7 @@ class GeoService:
 
     def vectorize_raster(self, raster_path: str) -> str:
         """
-        Converts a classification raster into vector format using QGIS Polygonize.
+        Converts a classification raster into vector format using Rasterio features.
         """
         try:
             print(f"Vectorizing {raster_path} using rasterio...")

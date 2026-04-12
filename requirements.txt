@@ -1,3 +1,15 @@
 fastapi
-uvicorn
+uvicorn[standard]
 google-cloud-storage
+google-cloud-tasks
+google-cloud-aiplatform
+rasterio
+shapely
+torch
+transformers
+numpy
+sqlalchemy
+geoalchemy2
+psycopg2-binary
+earthengine-api
+requests

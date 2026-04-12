@@ -8,9 +8,10 @@ REGION="europe-west4" # Region avec support GPU (Pays-Bas)
 IMAGE_NAME="gcr.io/$PROJECT_ID/$SERVICE_NAME"
 MODELS_BUCKET="geocongoai-models-storage" # Résolu: Utilise le bucket existant
 WORKER_SA_EMAIL="geocongo-worker-sa@${PROJECT_ID}.iam.gserviceaccount.com" # Remplacez si vous utilisez un autre nom
-PRITHVI_ENDPOINT_ID="YOUR_PRITHVI_ENDPOINT_ID" # ⬅️ Remplacer par l'ID de l'endpoint Prithvi
-SAM_ENDPOINT_ID="YOUR_SAM_ENDPOINT_ID" # ⬅️ Remplacer par l'ID de l'endpoint SAM
-LANDCOVER_ENDPOINT_ID="YOUR_LANDCOVER_ENDPOINT_ID" # ⬅️ Remplacer par l'ID de l'endpoint Landcover
+# IDs réels récupérés via 'gcloud ai models list'
+PRITHVI_MODEL_ID="7328185625499140096" 
+SAM_MODEL_ID="7901576541337812992"
+LANDCOVER_MODEL_ID="3632982131241648128"
 
 # --- 1. Build de l'image Docker ---
 echo "Building image $IMAGE_NAME..."
@@ -27,9 +28,10 @@ gcloud run deploy $SERVICE_NAME \
     --cpu=2 \
     --memory=4Gi \
     --execution-environment gen2 \
+    --cpu-boost \
     --timeout=600s \
     --port=8080 \
-    --set-env-vars "GEOCONGO_API_KEY=test_key_geocongo,GCP_PROJECT_ID=${PROJECT_ID},GCP_REGION=${REGION},MODELS_BUCKET=${MODELS_BUCKET},CLOUD_TASKS_QUEUE=geocongo-results-queue,CLOUD_TASKS_WORKER_SA_EMAIL=${WORKER_SA_EMAIL},VERTEX_PRITHVI_ENDPOINT_ID=${PRITHVI_ENDPOINT_ID},VERTEX_SAM_ENDPOINT_ID=${SAM_ENDPOINT_ID},VERTEX_LANDCOVER_ENDPOINT_ID=${LANDCOVER_ENDPOINT_ID}"
+    --set-env-vars "GEOCONGO_API_KEY=test_key_geocongo,GCP_PROJECT_ID=${PROJECT_ID},GCP_REGION=${REGION},CLOUD_TASKS_REGION=europe-west1,MODELS_BUCKET=${MODELS_BUCKET},CLOUD_TASKS_QUEUE=geocongo-results-queue,CLOUD_TASKS_WORKER_SA_EMAIL=${WORKER_SA_EMAIL},VERTEX_PRITHVI_MODEL_ID=${PRITHVI_MODEL_ID},VERTEX_SAM_MODEL_ID=${SAM_MODEL_ID},VERTEX_LANDCOVER_MODEL_ID=${LANDCOVER_MODEL_ID}"
 
 echo "✅ Initial deployment command sent. Fetching service URL..."
 

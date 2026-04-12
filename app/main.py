@@ -6,14 +6,11 @@ from typing import List, Optional
 from sqlalchemy.orm import Session
 import json
 from google.cloud import tasks_v2
-
-from app.core.security import get_api_key
 from app.services.ai_service import AIService
 from app.services.geo_service import GeoService
 from app.services.cloud_tasks_service import CloudTasksService
-from app.services.postgis_service import PostGISService
-from app.db.database import get_db, engine
-from app.db import models
+
+from app.core.security import get_api_key
 from pydantic import BaseModel
 
 class AnalysisType(str, Enum):
@@ -37,18 +34,29 @@ class CacheFileInfo(BaseModel):
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup logic
-    print("🚀 Starting GeoCongo AI API...")
+    print("--- 🚀 Container Startup Initiated ---")
 
-    app.state.ai_service = AIService()
-    app.state.geo_service = GeoService()
     try:
+        app.state.ai_service = AIService()
+        app.state.geo_service = GeoService()
         app.state.tasks_service = CloudTasksService()
-    except ValueError as e:
+        print("✅ Core services loaded.")
+    except Exception as e:
+        app.state.ai_service = None
+        app.state.geo_service = None
         app.state.tasks_service = None
-        print(f"⚠️ CloudTasksService not initialized: {e}. Asynchronous saving will be disabled.")
+        print(f"⚠️ AIService not initialized: {e}. AI functionalities will be disabled.")
+
+    try:
+        from app.db.database import engine
+        from app.db import models
+        # On ne tente pas de connexion ici, on vérifie juste que l'import passe
+        print("✅ Database modules imported.")
+    except Exception as e:
+        print(f"⚠️ Database modules failed to import: {e}")
 
     yield
-    print("Shutdown complete.")
+    print("--- 🛑 Shutdown complete ---")
 
 app = FastAPI(
     title="GeoCongo AI API",
@@ -82,7 +90,7 @@ async def analyze_area(
         task = {
             "http_request": {
                 "http_method": tasks_v2.HttpMethod.POST,
-                "url": f"{tasks_service.worker_url}/tasks/execute-analysis",
+                "url": f"{tasks_service.worker_urls['default']}/tasks/execute-analysis",
                 "headers": {"Content-Type": "application/json"},
                 "body": json.dumps(task_payload).encode(),
                 "oidc_token": {"service_account_email": tasks_service.worker_sa_email},
@@ -103,18 +111,24 @@ async def analyze_area(
 @app.post("/tasks/execute-analysis")
 async def task_execute_analysis(
     payload: dict = Body(...),
-    ai_service: AIService = Depends(lambda: app.state.ai_service),
-    geo_service: GeoService = Depends(lambda: app.state.geo_service),
-    db: Session = Depends(get_db)
+    db: Session = Depends(lambda: None) # Placeholder
 ):
     """
     Worker endpoint called by Cloud Tasks to run the full analysis pipeline.
     """
+    # Import local pour éviter les échecs au démarrage
+    from app.services.postgis_service import PostGISService
+    from app.db.database import get_db
+    
+    ai_service = app.state.ai_service
+    geo_service = app.state.geo_service
     bbox = payload["bbox"]
     analysis_type = payload["analysis_type"]
-    postgis_service = PostGISService(db)
 
     try:
+        db_session = next(get_db())
+        postgis_service = PostGISService(db_session)
+        
         # 1. Inférence avec les modèles d'IA
         raster_path = await ai_service.run_inference(bbox, analysis_type)
         
@@ -142,11 +156,13 @@ async def task_execute_analysis(
 @app.post("/tasks/save-results")
 async def task_save_results(
     payload: dict = Body(...),
-    db: Session = Depends(get_db)
 ):
     """
     Worker endpoint called by Cloud Tasks to save GeoJSON results to PostGIS.
     """
+    from app.services.postgis_service import PostGISService
+    from app.db.database import get_db
+    db = next(get_db())
     postgis_service = PostGISService(db)
     postgis_service.save_geojson_to_postgis(
         geojson_data=payload["geojson_data"],
@@ -179,7 +195,6 @@ async def get_results(
     bbox: Optional[str] = Query(None, description="Filter by a bounding box: 'minx,miny,maxx,maxy'"),
     skip: int = Query(0, ge=0, description="Number of records to skip for pagination"),
     limit: int = Query(100, gt=0, le=1000, description="Maximum number of records to return"),
-    db: Session = Depends(get_db)
 ):
     """
     Retrieves vectorized analysis results from the PostGIS database.
@@ -187,6 +202,8 @@ async def get_results(
     # Importations locales pour la clarté
     from geoalchemy2.functions import ST_AsGeoJSON, ST_MakeEnvelope
     from app.db.models import AnalysisResult
+    from app.db.database import get_db
+    db = next(get_db())
     
     query = db.query(
         AnalysisResult.analysis_type,
@@ -229,8 +246,8 @@ async def root():
 async def health(ai_service: Optional[AIService] = Depends(lambda: getattr(app.state, "ai_service", None))):
     vertex_configured = "ok"
     if ai_service:
-        if not all([ai_service.prithvi_endpoint_id, ai_service.sam_endpoint_id, ai_service.landcover_endpoint_id]):
-            vertex_configured = "missing_endpoint_ids"
+        if not all([ai_service.prithvi_model_id, ai_service.sam_model_id, ai_service.landcover_model_id]):
+            vertex_configured = "missing_model_ids"
     else:
         vertex_configured = "service_not_initialized"
 

@@ -36,10 +36,10 @@ class AIService:
         self.location = os.getenv("GCP_REGION")
         self.gcs_bucket_name = os.getenv("MODELS_BUCKET")
 
-        # IDs for the Vertex AI Endpoints
-        self.prithvi_endpoint_id = os.getenv("VERTEX_PRITHVI_ENDPOINT_ID")
-        self.sam_endpoint_id = os.getenv("VERTEX_SAM_ENDPOINT_ID")
-        self.landcover_endpoint_id = os.getenv("VERTEX_LANDCOVER_ENDPOINT_ID")
+        # IDs for the Vertex AI Models (Non plus les Endpoints)
+        self.prithvi_model_id = os.getenv("VERTEX_PRITHVI_MODEL_ID")
+        self.sam_model_id = os.getenv("VERTEX_SAM_MODEL_ID")
+        self.landcover_model_id = os.getenv("VERTEX_LANDCOVER_MODEL_ID")
         
         if self.project_id and self.location:
             aiplatform.init(project=self.project_id, location=self.location)
@@ -56,9 +56,9 @@ class AIService:
         self.prithvi_model = None 
         self.sam_model = None
         self.landcover_model = None
-        print("AI Service initialized. All model inferences are delegated to Vertex AI Endpoints.")
-        if not all([self.prithvi_endpoint_id, self.sam_endpoint_id, self.landcover_endpoint_id]):
-            print("⚠️ WARNING: One or more Vertex AI endpoint IDs are not set. Corresponding analyses will fail.")
+        print("AI Service initialized. All model inferences are delegated to Vertex AI Batch Jobs.")
+        if not all([self.prithvi_model_id, self.sam_model_id, self.landcover_model_id]):
+            print("⚠️ WARNING: One or more Vertex AI model IDs are not set.")
 
     def cleanup_cache(self, max_age_days: int = 30):
         """
@@ -168,32 +168,48 @@ class AIService:
 
         return download_path, temp_dir
 
-    async def _call_vertex_endpoint(self, endpoint_id: str, sat_data_path: str, output_raster_path: str):
-        """Helper function to call a Vertex AI endpoint with the GCS-to-GCS pattern."""
-        print(f"Calling Vertex AI Endpoint {endpoint_id}...")
+    async def _call_vertex_batch_prediction(self, model_id: str, sat_data_path: str, output_raster_path: str, analysis_type: str):
+        """
+        Utilise Vertex AI Batch Prediction. 
+        La machine (GPU) est allumée uniquement pour la durée du calcul.
+        """
+        print(f"Lancement du Batch Job pour {analysis_type} (Model: {model_id})...")
         
         storage_client = storage.Client()
         bucket = storage_client.bucket(self.gcs_bucket_name)
         
         input_blob_name = f"tmp_inputs/{uuid.uuid4()}.tif"
-        output_blob_name = f"tmp_outputs/{uuid.uuid4()}.tif"
+        output_prefix = f"tmp_outputs/{uuid.uuid4()}"
         
         input_blob = bucket.blob(input_blob_name)
         input_blob.upload_from_filename(sat_data_path)
         
         input_uri = f"gs://{self.gcs_bucket_name}/{input_blob_name}"
-        output_uri = f"gs://{self.gcs_bucket_name}/{output_blob_name}"
+        output_uri_prefix = f"gs://{self.gcs_bucket_name}/{output_prefix}"
         
-        endpoint = aiplatform.Endpoint(endpoint_id)
-        instances = [{"input_uri": input_uri, "output_uri": output_uri}]
-        endpoint.predict(instances=instances)
+        model = aiplatform.Model(model_id)
         
-        bucket.blob(output_blob_name).download_to_filename(output_raster_path)
+        # Création du job. 'sync=True' permet d'attendre la fin avant de continuer.
+        batch_job = model.batch_predict(
+            job_display_name=f"geocongo_{analysis_type}_{uuid.uuid4()}",
+            gcs_source=input_uri,
+            gcs_destination_output_uri_prefix=output_uri_prefix,
+            machine_type="g2-standard-4",
+            accelerator_type="NVIDIA_L4",
+            accelerator_count=1,
+            sync=True 
+        )
+
+        # Récupération du fichier dans le dossier de sortie généré par Vertex
+        blobs = list(bucket.list_blobs(prefix=output_prefix))
+        for blob in blobs:
+            if blob.name.endswith(".tif"):
+                blob.download_to_filename(output_raster_path)
+                blob.delete()
+                break
         
         input_blob.delete()
-        bucket.blob(output_blob_name).delete()
-        
-        print(f"Classification raster downloaded from Vertex AI to {output_raster_path}")
+        print(f"✅ Batch Job terminé. Résultat sauvegardé dans {output_raster_path}")
 
     async def run_inference(self, bbox: List[float], analysis_type: str) -> str:
         """
@@ -214,19 +230,13 @@ class AIService:
 
             # Logique d'inférence pour les différents types d'analyse
             if analysis_type in ['minéraux', 'mines']:
-                if not self.prithvi_endpoint_id:
-                    raise ValueError("Prithvi Vertex AI endpoint ID is not configured.")
-                await self._call_vertex_endpoint(self.prithvi_endpoint_id, sat_data_path, output_raster)
+                await self._call_vertex_batch_prediction(self.prithvi_model_id, sat_data_path, output_raster, analysis_type)
 
             elif analysis_type == 'failles':
-                if not self.sam_endpoint_id:
-                    raise ValueError("SAM Vertex AI endpoint ID is not configured.")
-                await self._call_vertex_endpoint(self.sam_endpoint_id, sat_data_path, output_raster)
+                await self._call_vertex_batch_prediction(self.sam_model_id, sat_data_path, output_raster, analysis_type)
 
             elif analysis_type == 'landcover':
-                if not self.landcover_endpoint_id:
-                    raise ValueError("Landcover Vertex AI endpoint ID is not configured.")
-                await self._call_vertex_endpoint(self.landcover_endpoint_id, sat_data_path, output_raster)
+                await self._call_vertex_batch_prediction(self.landcover_model_id, sat_data_path, output_raster, analysis_type)
 
             else:
                 # Si aucun modèle n'est disponible ou si le type d'analyse n'est pas géré
