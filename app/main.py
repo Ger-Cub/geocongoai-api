@@ -9,14 +9,12 @@ from datetime import datetime
 from app.models import AnalysisRequest, AnalysisTypeInfo, AnalysisResultResponse, HealthResponse
 from app.analysis_registry import ANALYSIS_TYPES, get_analysis_config
 from app.core.security import get_api_key
-from app.services.satellite import SatelliteService
-from app.services.inference import InferenceService
+from app.services.ai_service import AIService
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     print("--- 🚀 Container Startup Initiated ---")
-    app.state.satellite_service = SatelliteService(project_id=os.getenv("GCP_PROJECT_ID"))
-    app.state.inference_service = InferenceService()
+    app.state.ai_service = AIService()
     app.state.storage_dir = "/tmp/app_storage"
     os.makedirs(app.state.storage_dir, exist_ok=True)
     
@@ -29,14 +27,11 @@ async def run_analysis_pipeline(request_id: str, request: AnalysisRequest):
     work_dir = os.path.join(app.state.storage_dir, request_id)
     os.makedirs(work_dir, exist_ok=True)
     
-    # 1. Téléchargement
-    tif_path = await app.state.satellite_service.download_area(request.bbox, request.scale, work_dir)
+    # 1 & 2. Inférence via Vertex AI (inclut le fetch GEE interne)
+    result_raster_path = await app.state.ai_service.run_inference(request.bbox, request.analysis_type)
     
-    # 2. Inférence (Features partagées)
-    features = app.state.inference_service.get_features(tif_path)
-    
-    # 3. TODO: Appel du module spécifique dans app/services/analysis/
-    print(f"Analyse {request.analysis_type} en cours pour {request_id}...")
+    # 3. TODO: Vectorisation et sauvegarde via PostGISService
+    print(f"Analyse {request.analysis_type} terminée. Résultat : {result_raster_path}")
 
 app = FastAPI(
     title="GeoCongo AI API",
@@ -69,6 +64,6 @@ async def analyze(request: AnalysisRequest, background_tasks: BackgroundTasks):
 async def health():
     return {
         "status": "healthy",
-        "model_loaded": app.state.inference_service is not None,
+        "model_loaded": hasattr(app.state, 'ai_service') and app.state.ai_service is not None,
         "gee_authenticated": True
     }

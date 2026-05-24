@@ -1,0 +1,18 @@
+{
+    "colors": {
+        "0": [0, 100, 0],
+        "1": [34, 139, 34],
+        "2": [160, 82, 45],
+        "3": [0, 0, 255],
+        "4": [255, 255, 0],
+        "5": [128, 128, 128]
+    },
+    "labels": {
+        "0": "Forêt dense équatoriale",
+        "1": "Végétation secondaire/Savane",
+        "2": "Sols nus/Affleurements",
+        "3": "Cours d'eau/Lacs",
+        "4": "Zones minières actives/Urbain"
+    },
+    "default_color": [200, 200, 200]
+}

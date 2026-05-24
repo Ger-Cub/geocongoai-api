@@ -122,6 +122,9 @@ async def predict(request: Request):
     if not input_gcs_uri or not output_gcs_uri:
         raise HTTPException(status_code=400, detail="input_uri and output_uri must be provided.")
 
+    if not input_gcs_uri.startswith("gs://") or not output_gcs_uri.startswith("gs://"):
+        raise HTTPException(status_code=400, detail="Invalid GCS URI format. Must start with gs://")
+
     storage_client = storage.Client()
     
     temp_dir = "/tmp"
