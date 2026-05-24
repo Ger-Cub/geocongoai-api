@@ -1,80 +1,43 @@
 #!/bin/bash
-set -e # Arrete le script en cas d'erreur
+set -e
 
-# --- Configuration ---
-PROJECT_ID="geocongoai-api"
+# Configuration
+PROJECT_ID=$(gcloud config get-value project)
+REGION="europe-west4"
 SERVICE_NAME="geocongoai-api"
-REGION="europe-west4" # Region avec support GPU (Pays-Bas)
-IMAGE_NAME="gcr.io/$PROJECT_ID/$SERVICE_NAME"
-MODELS_BUCKET="geocongoai-models-storage" # Résolu: Utilise le bucket existant
-WORKER_SA_EMAIL="geocongo-worker-sa@${PROJECT_ID}.iam.gserviceaccount.com" # Remplacez si vous utilisez un autre nom
-# IDs réels récupérés via 'gcloud ai models list'
-PRITHVI_MODEL_ID="7328185625499140096" 
-SAM_MODEL_ID="7901576541337812992"
-LANDCOVER_MODEL_ID="3632982131241648128"
+IMAGE_NAME="gcr.io/${PROJECT_ID}/${SERVICE_NAME}"
+MODELS_BUCKET="geocongoai-models-storage"
+WORKER_SA_EMAIL="geocongo-worker-sa@${PROJECT_ID}.iam.gserviceaccount.com"
 
-# --- 1. Build de l'image Docker ---
-echo "Building image $IMAGE_NAME..."
-gcloud builds submit --tag $IMAGE_NAME --project=$PROJECT_ID .
+echo "🚀 Préparation du déploiement pour GeoCongo AI..."
 
-# --- 2. Déploiement initial (ou mise à jour) ---
-echo "Deploying CPU-only service '$SERVICE_NAME' to Cloud Run..."
+# 1. Vérification et exécution de la configuration IAM
+chmod +x scripts/setup_iam.sh
+./scripts/setup_iam.sh
+
+# 2. Construction de l'image via Cloud Build
+echo "📦 Construction de l'image Docker..."
+gcloud builds submit --tag $IMAGE_NAME .
+
+# 3. Déploiement sur Cloud Run
+# L'option --cpu-boost est activée pour accélérer le chargement des librairies au démarrage
+echo "🚀 Déploiement sur Cloud Run..."
 gcloud run deploy $SERVICE_NAME \
-    --project=$PROJECT_ID \
     --image $IMAGE_NAME \
-    --platform managed \
     --region $REGION \
-    --no-allow-unauthenticated \
-    --cpu=2 \
-    --memory=4Gi \
-    --execution-environment gen2 \
+    --platform managed \
+    --service-account $WORKER_SA_EMAIL \
+    --set-env-vars "GCP_PROJECT_ID=${PROJECT_ID},GCP_REGION=${REGION},MODELS_BUCKET=${MODELS_BUCKET},GEOCONGO_API_KEY=test_key_geocongo,USE_LOCAL_MODELS=true" \
+    --timeout 600 \
+    --memory 8Gi \
+    --cpu 4 \
     --cpu-boost \
-    --timeout=600s \
-    --port=8080 \
-    --set-env-vars "GEOCONGO_API_KEY=test_key_geocongo,GCP_PROJECT_ID=${PROJECT_ID},GCP_REGION=${REGION},CLOUD_TASKS_REGION=europe-west1,MODELS_BUCKET=${MODELS_BUCKET},CLOUD_TASKS_QUEUE=geocongo-results-queue,CLOUD_TASKS_WORKER_SA_EMAIL=${WORKER_SA_EMAIL},VERTEX_PRITHVI_MODEL_ID=${PRITHVI_MODEL_ID},VERTEX_SAM_MODEL_ID=${SAM_MODEL_ID},VERTEX_LANDCOVER_MODEL_ID=${LANDCOVER_MODEL_ID}"
+    --allow-unauthenticated
 
-echo "✅ Initial deployment command sent. Fetching service URL..."
+SERVICE_URL=$(gcloud run services describe $SERVICE_NAME --region $REGION --format 'value(status.url)')
 
-# --- 3. Récupération de l'URL et redéploiement pour le worker ---
-SERVICE_URL=$(gcloud run services describe $SERVICE_NAME --platform managed --region $REGION --format 'value(status.url)')
-
-if [ -z "$SERVICE_URL" ]; then
-    echo "❌ Could not retrieve service URL. Aborting."
-    exit 1
-fi
-
-echo "Service URL is: $SERVICE_URL"
-echo "Re-deploying to set the CLOUD_TASKS_WORKER_URL environment variable..."
-
-gcloud run services update $SERVICE_NAME \
-    --platform managed \
-    --region $REGION \
-    --update-env-vars "CLOUD_TASKS_WORKER_URL=${SERVICE_URL}" \
-    --project=$PROJECT_ID
-
-echo "✅ Service updated with the correct worker URL. The new revision is being deployed."
-echo "Starting health check..."
-
-# --- 4. Health Check ---
-HEALTH_URL="${SERVICE_URL}/health"
-API_KEY="test_key_geocongo" # La clé API définie dans les variables d'environnement
-
-MAX_ATTEMPTS=90 # Attendre au maximum 15 minutes (90 * 10s) pour laisser le temps aux modèles de charger
-SLEEP_SECONDS=5
-
-for (( i=1; i<=MAX_ATTEMPTS; i++ )); do
-    echo "Attempt $i/$MAX_ATTEMPTS: Checking health at $HEALTH_URL..."
-    # Utiliser curl pour interroger le point d'entrée /health avec la clé API
-    # -s pour silencieux, -f pour échouer si le code HTTP n'est pas 2
-    response=$(curl -s -f -H "X-API-Key: $API_KEY" "$HEALTH_URL" || echo "failed")
-
-    if [[ "$response" != "failed" && $(echo "$response" | grep '"status": "healthy"') ]]; then
-        echo "✅ Service is healthy and running!"
-        exit 0
-    fi
-
-    sleep $SLEEP_SECONDS
-done
-
-echo "❌ Service did not become healthy after $MAX_ATTEMPTS attempts."
-exit 1
+echo "=========================================================="
+echo "✅ Déploiement réussi !"
+echo "🔗 URL de l'API : ${SERVICE_URL}"
+echo "💡 Note : Assurez-vous d'avoir déployé les modèles Vertex AI via scripts/deploy_vertex.sh"
+echo "=========================================================="
