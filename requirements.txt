@@ -6,6 +6,7 @@ google-cloud-aiplatform
 rasterio
 shapely
 torch
+terratorch
 transformers
 numpy
 sqlalchemy
@@ -13,3 +14,11 @@ geoalchemy2
 psycopg2-binary
 earthengine-api
 requests
+scikit-learn
+geopandas
+scipy
+opencv-python
+matplotlib
+seaborn
+python-multipart
+python-dotenv

@@ -1,5 +1,0 @@
-steps:
-- name: 'gcr.io/cloud-builders/docker'
-  args: ['build', '-t', 'gcr.io/geocongoai-api/geocongoai-streamlit', '-f', 'Dockerfile.streamlit', '.']
-images:
-- 'gcr.io/geocongoai-api/geocongoai-streamlit'

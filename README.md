@@ -1,73 +1,53 @@
-# 🌍 GeoCongo AI API - Documentation
+# GeoCongo AI API - Prithvi EO v2
 
-API de pointe pour l'analyse géologique de la RDC utilisant l'IA (Prithvi-EO-2.0, SAM 2) et PyQGIS.
+Cette API fournit un pipeline complet pour l'analyse géologique et environnementale automatisée en République Démocratique du Congo, basée sur le modèle de fondation NASA-IBM **Prithvi EO v2**.
 
-## 🚀 Utilisation Rapide
+## Fonctionnalités
 
-L'API est accessible via l'URL fournie par Cloud Run.
+- **Inférence Unique** : Utilisation d'un seul modèle (`prithvi_eo_v2_300`) pour extraire des caractéristiques profondes.
+- **15 Analyses Spécialisées** : Du suivi minier à la détection de catastrophes naturelles.
+- **Intégration GEE** : Téléchargement automatique des données Sentinel-2 et Landsat 8.
+- **Sorties Multi-formats** : GeoJSON pour les vecteurs, GeoTIFF pour les rasters, et PNG pour la visualisation.
 
-### 🔐 Authentification
+## Structure du Projet
 
-Toutes les requêtes doivent inclure la clé API dans le header :
-`X-API-Key: test_key_geocongo`
+- `app/main.py` : Points d'entrée FastAPI et orchestration.
+- `app/services/inference.py` : Service d'inférence Prithvi via `terratorch`.
+- `app/services/analysis/` : Modules spécifiques pour les 15 types d'analyse.
+- `app/utils/` : Utilitaires géospatiaux et calculs d'indices spectraux.
 
-### 📍 Points d'entrée (Endpoints)
+## Analyses Disponibles (15 types)
 
-#### 1. Analyse Géologique
+| Catégorie | Analyses |
+|-----------|----------|
+| **Géologie & Mines** | Unités géologiques, Lithologie, Altération hydrothermale, Détection minérale, Linéaments, Suivi minier, Restauration |
+| **Environnement** | Glissements de terrain, Inondations, Feux de forêt, Dégâts post-catastrophe |
+| **Sols & Climat** | Occupation des sols (LULC), Cultures, Plans d'eau, Déforestation, Carbone |
 
-**POST** `/analyze`
+## Installation et Lancement
 
-**Exemple de corps de requête :**
+### Préréglages
 
-```json
-{
-  "bbox": [28.8, -2.5, 28.9, -2.4],
-  "analysis_type": "failles",
-  "crs": "EPSG:4326"
-}
-```
+1. Authentification Google Earth Engine
+2. Clé API (définie via `API_KEY`)
 
-* **analysis_type** possible : `failles`, `mines`, `minéraux`.
-
-#### 2. État du système
-
-**GET** `/health` : Vérifie l'état des modèles et de QGIS.
-
-#### 3. Consulter les Résultats
-
-**GET** `/results`
-
-Permet de récupérer les résultats d'analyses déjà stockés en base de données.
-
-**Paramètres de requête (optionnels) :**
-* `analysis_type`: Filtre par type d'analyse (ex: `failles`).
-* `bbox`: Filtre par zone géographique au format `minx,miny,maxx,maxy` (ex: `28.8,-2.5,28.9,-2.4`).
-
-## 🛠️ Exemples de commandes Client
-
-### Lancer une analyse
+### Docker
 
 ```bash
-curl -X POST https://[YOUR-CLOUD-RUN-URL]/analyze \
-     -H "Content-Type: application/json" \
-     -H "X-API-Key: test_key_geocongo" \
-     -d '{
-           "bbox": [28.8, -2.5, 28.9, -2.4],
-           "analysis_type": "failles"
-         }'
+docker build -t geocongo-api .
+docker run -p 8080:8080 -e GCP_PROJECT_ID=votre-projet geocongo-api
 ```
 
----
+### Local
 
-## 🏗️ Architecture Technique
+```bash
+pip install -r requirements.txt
+uvicorn app.main:app --reload
+```
 
-- **Backend** : FastAPI / Python 3.10
-* **IA** : Segment Anything Model 2 (SAM 2) & Prithvi-EO-V2
-* **GIS** : Rasterio, Geopandas & Shapely (Vectorisation pure Python)
-* **Infra** : Docker sur Google Cloud Run (GPU support)
+## API Endpoints
 
-## 📁 Structure du Projet
-
-- `/app` : Code source de l'API.
-* `/models` : Poids des modèles IA (SAM 2, Prithvi).
-* `/scripts` : Outils de déploiement et de configuration.
+- `GET /analysis-types` : Liste documentée des analyses.
+- `POST /analyze` : Lancer une analyse (nécessite BBOX et `analysis_type`).
+- `GET /results/{request_id}` : Récupérer les résultats et liens de téléchargement.
+- `GET /health` : État du service et du modèle.
