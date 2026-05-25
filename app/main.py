@@ -5,6 +5,7 @@ import importlib
 import asyncio
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Depends, HTTPException, BackgroundTasks
+from fastapi.responses import FileResponse
 from typing import List, Dict, Any
 from datetime import datetime
 
@@ -121,3 +122,26 @@ async def health():
         "model_loaded": inference_engine is not None,
         "gee_authenticated": True
     }
+
+@app.get("/download/{request_id}/{filename}")
+async def download_result(request_id: str, filename: str):
+    """
+    Endpoint sécurisé pour télécharger les résultats physiques d'une analyse 
+    (GeoTIFF, GeoJSON, etc.).
+    """
+    # 1. Vérification de sécurité (faille "Directory Traversal")
+    if ".." in filename or "/" in filename:
+        raise HTTPException(status_code=400, detail="Nom de fichier strictement invalide pour des raisons de sécurité.")
+        
+    # 2. Construction dynamique du chemin de fichier
+    file_path = os.path.join(storage_dir, request_id, filename)
+    
+    # 3. Vérification de l'existence du fichier
+    if not os.path.exists(file_path):
+        raise HTTPException(
+            status_code=404, 
+            detail="Le fichier n'existe pas. L'analyse est peut-être incomplète ou a expiré."
+        )
+        
+    # 4. Envoi du fichier avec le bon en-tête pour forcer la boîte de dialogue de téléchargement
+    return FileResponse(path=file_path, filename=filename)
