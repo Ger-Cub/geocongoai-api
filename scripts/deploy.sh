@@ -6,7 +6,7 @@ PROJECT_ID=$(gcloud config get-value project)
 REGION="europe-west4"
 SERVICE_NAME="geocongoai-api"
 IMAGE_NAME="gcr.io/${PROJECT_ID}/${SERVICE_NAME}"
-MODELS_BUCKET="geocongoai-models-storage"
+MODELS_BUCKET="geocongo-models-bucket"
 WORKER_SA_EMAIL="geocongo-worker-sa@${PROJECT_ID}.iam.gserviceaccount.com"
 
 echo "🚀 Préparation du déploiement OPTIMISÉ pour GeoCongo AI..."
