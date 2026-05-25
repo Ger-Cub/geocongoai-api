@@ -14,6 +14,7 @@ class AnalysisTypeInfo(BaseModel):
     name: str
     category: str
     description: str
+    methodology: str
 
 class AnalysisResultResponse(BaseModel):
     request_id: str
