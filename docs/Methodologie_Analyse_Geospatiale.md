@@ -1,8 +1,8 @@
-# Méthodologie d'Analyse Géospatiale de GeoCongo AI
+# Méthodologie d'Analyse de GeoCongo AI
 
-Ce document explique les fondements scientifiques et algorithmiques derrière les 15 types d'analyse proposés par l'API GeoCongo AI.
+Ce document explique les fondements scientifiques et algorithmiques derrière les 16 types d'analyse proposés par l'API GeoCongo AI regroupée en quatre catégories (Exploration Minière et analyse géologique, Environnement et Catastrophes, Occupation des Sols, Forêts et Climat).
 
-L'objectif de GeoCongo AI est de démocratiser l'accès aux données de la République Démocratique du Congo (RDC) grâce à la télédétection. Pour ce faire, nous combinons la puissance des **fondations models d'Intelligence Artificielle (Prithvi EO v2 de NASA-IBM)** avec des **indices mathématiques spectraux éprouvés**.
+L'objectif de GeoCongo AI est de faciliter l'accès, le traitement et l'interprétation des données géospatiales et géoscientifiques de la République Démocratique du Congo (RDC) grâce à la combinaison de la télédétection, l'intelligence artificielle et des bases de données collaboratives. Pour ce faire, nous exploitons la puissance des **fondations models d'Intelligence Artificielle (Prithvi EO v2 de NASA-IBM)** ainsi que des **indices mathématiques spectraux éprouvés** pour faire des analyses géospatiales. Ces résultants sont ensuite discutés et conctrontés aux travaux de recherches existants et aux données de terrain grâce à une architecture d'intelligence artificielle dénommé **RAG (Retrieval Augmented Generation)** qui permet d'interroger par recherche sémantique des milliers de thèses, rapports, cartes, collections d'échantillons des roches et données de terrain. Pour rendre accessible ces fonctionnalités à tous les utilisateurs, GeoCongo AI met en place des **Agents IA (ChatBots)** capable d'exécuter ces requêtes géospatiales, interroger ces bases de données et générer des rapports à travers  des conversations en langage vocal ou textuel et disponibles sur le site web [www.geocongoai.com/chat](https://www.geocongoai.com/chat), WhatsApp et Telegram.
 
 Voici la méthodologie approfondie pour chaque type d'analyse.
 
