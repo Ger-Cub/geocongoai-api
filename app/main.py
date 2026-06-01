@@ -20,7 +20,7 @@ from app.services.storage import ensure_model_available
 satellite_service = SatelliteService(project_id=os.getenv("GCP_PROJECT_ID"))
 inference_engine = None # Will be initialized in lifespan
 
-storage_dir = "/tmp/geocongo_storage"
+storage_dir = "/tmp/gundua_storage"
 os.makedirs(storage_dir, exist_ok=True)
 
 # Registry of results (simplified, in-memory for demo)
@@ -29,7 +29,7 @@ results_db = {}
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global inference_engine
-    print("--- 🚀 Starting GeoCongo AI API ---")
+    print("--- 🚀 Starting Gundua AI API ---")
     
     # Sync de modèle depuis GCS si configuré
     model_name = os.getenv("MODEL_NAME", "prithvi_eo_v2_300")
@@ -43,8 +43,8 @@ async def lifespan(app: FastAPI):
     print("--- 🛑 Shutting down ---")
 
 app = FastAPI(
-    title="GeoCongo AI API (Prithvi EO v2)",
-    description="API complète pour l'analyse géologique et environnementale automatisée.",
+    title="Gundua AI API (Prithvi EO v2)",
+    description="Interface d'analyse géospatiale avancée propulsée par Gundua AI.",
     version="2.0.0",
     lifespan=lifespan
 )

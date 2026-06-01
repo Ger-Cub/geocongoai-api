@@ -4,18 +4,17 @@ set -e
 # Configuration de base
 PROJECT_ID=$(gcloud config get-value project)
 REGION="europe-west4"
-SERVICE_NAME="geocongoai-api"
+SERVICE_NAME="gundua-ai-api"
 IMAGE_NAME="gcr.io/${PROJECT_ID}/${SERVICE_NAME}"
 
-# Extraction des variables depuis env.yaml (nécessite 'yq' ou parsing simple)
-# Ici on utilise un parsing simple pour ne pas dépendre de yq
+# Extraction des variables depuis env.yaml
 GCS_BUCKET=$(grep "GCS_BUCKET" env.yaml | cut -d ':' -f 2 | tr -d ' ')
 API_KEY=$(grep "GEOCONGO_API_KEY" env.yaml | cut -d ':' -f 2 | tr -d ' ')
 
-MODELS_BUCKET=${GCS_BUCKET:-"geocongo-models-bucket"}
-WORKER_SA_EMAIL="geocongo-worker-sa@${PROJECT_ID}.iam.gserviceaccount.com"
+MODELS_BUCKET=${GCS_BUCKET:-"gundua-ai-models-storage"}
+WORKER_SA_EMAIL="gundua-worker-sa@${PROJECT_ID}.iam.gserviceaccount.com"
 
-echo "🌍 Déploiement GeoCongo AI API v2 (Prithvi v2)"
+echo "🌍 Déploiement Gundua AI API v1"
 echo "----------------------------------------------------------"
 echo "Project ID: $PROJECT_ID"
 echo "Region:     $REGION"
