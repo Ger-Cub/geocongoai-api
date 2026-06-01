@@ -63,12 +63,16 @@ gcloud projects add-iam-policy-binding $PROJECT_ID \
     --member="serviceAccount:$SERVICE_ACCOUNT_EMAIL" \
     --role="roles/cloudtasks.enqueuer"
 
+# 6. Initialisation des modèles (Download from HF -> Upload to GCS)
+echo "🧠 Initialisation des modèles d'IA..."
+export GCS_BUCKET=$BUCKET_NAME
+python3 scripts/init_models.py
+
 echo "=========================================================="
 echo "✅ CONFIGURATION TERMINÉE"
 echo "Projet : $PROJECT_ID"
 echo "Bucket : gs://$BUCKET_NAME"
 echo "SA     : $SERVICE_ACCOUNT_EMAIL"
 echo "=========================================================="
-echo "💡 Prochaines étapes :"
-echo "1. Téléchargez les modèles Prithvi et SAM 2 dans gs://$BUCKET_NAME"
-echo "2. Lancez scripts/deploy.sh"
+echo "💡 Prochaine étape :"
+echo "1. Lancez scripts/deploy.sh"
