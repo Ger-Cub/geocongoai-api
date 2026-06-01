@@ -19,16 +19,34 @@ class PrithviInference:
             return
             
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-        self.model_name = "prithvi_eo_v2_300"
+        self.model_name = os.getenv("MODEL_NAME", "prithvi_eo_v2_300")
+        custom_weights_path = os.getenv("CUSTOM_WEIGHTS_PATH")
+        
         print(f"🧠 Loading Prithvi model ({self.model_name}) on {self.device}...")
         
         try:
-            self.model = BACKBONE_REGISTRY.build(
-                self.model_name,
-                num_frames=1,
-                in_chans=6,
-                pretrained=True
-            )
+            # Si un bucket et un chemin de poids sont définis, on tente de charger le modèle personnalisé
+            if custom_weights_path:
+                print(f"📦 Using custom weights from: {custom_weights_path}")
+                # Note: terratorch build with pretrained=False then load_state_dict if needed, 
+                # but build often takes custom_weights if supported.
+                self.model = BACKBONE_REGISTRY.build(
+                    self.model_name,
+                    num_frames=1,
+                    in_chans=6,
+                    pretrained=False
+                )
+                state_dict = torch.load(custom_weights_path, map_location=self.device)
+                self.model.load_state_dict(state_dict)
+            else:
+                # Chargement standard (Hub/Pretrained)
+                self.model = BACKBONE_REGISTRY.build(
+                    self.model_name,
+                    num_frames=1,
+                    in_chans=6,
+                    pretrained=True
+                )
+            
             self.model.eval()
             self.model = self.model.to(self.device)
             self._initialized = True

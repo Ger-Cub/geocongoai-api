@@ -14,6 +14,7 @@ from app.analysis_registry import ANALYSIS_TYPES, get_analysis_config
 from app.dependencies import get_api_key
 from app.services.satellite import SatelliteService
 from app.services.inference import PrithviInference
+from app.services.storage import ensure_model_available
 
 # Initialize services
 satellite_service = SatelliteService(project_id=os.getenv("GCP_PROJECT_ID"))
@@ -29,6 +30,14 @@ results_db = {}
 async def lifespan(app: FastAPI):
     global inference_engine
     print("--- 🚀 Starting GeoCongo AI API ---")
+    
+    # Sync de modèle depuis GCS si configuré
+    model_name = os.getenv("MODEL_NAME", "prithvi_eo_v2_300")
+    custom_weights_path = os.getenv("CUSTOM_WEIGHTS_PATH")
+    
+    if os.getenv("MODEL_BUCKET") and custom_weights_path:
+        ensure_model_available(model_name, custom_weights_path)
+        
     inference_engine = PrithviInference()
     yield
     print("--- 🛑 Shutting down ---")

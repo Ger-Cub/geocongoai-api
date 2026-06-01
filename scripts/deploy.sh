@@ -1,53 +1,53 @@
 #!/bin/bash
 set -e
 
-# Configuration
+# Configuration de base
 PROJECT_ID=$(gcloud config get-value project)
 REGION="europe-west4"
 SERVICE_NAME="geocongoai-api"
 IMAGE_NAME="gcr.io/${PROJECT_ID}/${SERVICE_NAME}"
-MODELS_BUCKET="geocongo-models-bucket"
+
+# Extraction des variables depuis env.yaml (nécessite 'yq' ou parsing simple)
+# Ici on utilise un parsing simple pour ne pas dépendre de yq
+GCS_BUCKET=$(grep "GCS_BUCKET" env.yaml | cut -d ':' -f 2 | tr -d ' ')
+API_KEY=$(grep "GEOCONGO_API_KEY" env.yaml | cut -d ':' -f 2 | tr -d ' ')
+
+MODELS_BUCKET=${GCS_BUCKET:-"geocongo-models-bucket"}
 WORKER_SA_EMAIL="geocongo-worker-sa@${PROJECT_ID}.iam.gserviceaccount.com"
 
-echo "🚀 Préparation du déploiement OPTIMISÉ pour GeoCongo AI..."
+echo "🌍 Déploiement GeoCongo AI API v2 (Prithvi v2)"
+echo "----------------------------------------------------------"
+echo "Project ID: $PROJECT_ID"
+echo "Region:     $REGION"
+echo "Models:     gs://$MODELS_BUCKET"
+echo "----------------------------------------------------------"
 
-# 1. Vérification et exécution de la configuration IAM (Optionnel)
-if [ -f scripts/setup_iam.sh ]; then
-    chmod +x scripts/setup_iam.sh
-    ./scripts/setup_iam.sh
-fi
-
-# 2. Construction de l'image via Cloud Build
-echo "📦 Construction de l'image Docker..."
+# 1. Construction de l'image Docker (inclut le patch automatique terratorch)
+echo "📦 Construction de l'image via Google Cloud Build..."
 gcloud builds submit --tag $IMAGE_NAME .
 
-# 3. Déploiement sur Cloud Run avec Optimisations de Coûts
-# - min-instances 0 : Facturation 0 si pas de trafic
-# - max-instances 5 : Limite l'explosion des coûts en cas de pic
-# - concurrency 10 : Permet à 1 instance de traiter 10 analyses en parallèle (optimise RAM/CPU)
-# - cpu-boost : Accélère le démarrage (chargement Prithvi) sans surcoût majeur
-# - cpu-throttling : (Par défaut) On ne paye le CPU que pendant le traitement des requêtes
-echo "🚀 Déploiement sur Cloud Run (Mode Économique)..."
+# 2. Déploiement sur Cloud Run
+# Note: On utilise 8Gi pour le chargement du modèle Prithvi
+echo "🚀 Déploiement sur Google Cloud Run..."
 gcloud run deploy $SERVICE_NAME \
     --image $IMAGE_NAME \
     --region $REGION \
     --platform managed \
-    --service-account $WORKER_SA_EMAIL \
-    --set-env-vars "GCP_PROJECT_ID=${PROJECT_ID},GCP_REGION=${REGION},MODELS_BUCKET=${MODELS_BUCKET},GEOCONGO_API_KEY=test_key_geocongo" \
+    --set-env-vars "GCP_PROJECT_ID=${PROJECT_ID},MODEL_BUCKET=${MODELS_BUCKET},GEOCONGO_API_KEY=${API_KEY:-'test_key_geocongo'},CUSTOM_WEIGHTS_PATH=/tmp/prithvi_model.pt" \
     --timeout 3600 \
     --memory 8Gi \
     --cpu 4 \
     --min-instances 0 \
     --max-instances 5 \
-    --concurrency 10 \
+    --concurrency 5 \
     --cpu-boost \
     --allow-unauthenticated
 
+# 3. Récupération de l'URL
 SERVICE_URL=$(gcloud run services describe $SERVICE_NAME --region $REGION --format 'value(status.url)')
 
 echo "=========================================================="
-echo "✅ Déploiement réussi avec optimisations de coûts !"
-echo "🔗 URL de l'API : ${SERVICE_URL}"
-echo "💡 Configuration : Scale-to-zero (0 instance si inactif)"
-echo "💡 Parallélisme : 10 requêtes simultanées par conteneur"
+echo "✅ ARCHITECTURE CLOUD DÉPLOYÉE"
+echo "🔗 API : ${SERVICE_URL}"
+echo "🔗 Documentation : ${SERVICE_URL}/docs"
 echo "=========================================================="

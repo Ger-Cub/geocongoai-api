@@ -22,6 +22,10 @@ WORKDIR /workspace
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
+# Patch terratorch for SENTINEL2_ALL_SOFTCON bug
+RUN sed -i "s/ResNet50_Weights.SENTINEL2_ALL_SOFTCON/ResNet50_Weights.SENTINEL2_ALL_MOCO/g" \
+    $(python3 -c "import terratorch; import os; print(os.path.join(os.path.dirname(terratorch.__file__), 'models/backbones/torchgeo_resnet.py'))")
+
 # Copie du code
 COPY . .
 
