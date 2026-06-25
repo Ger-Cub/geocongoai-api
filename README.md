@@ -24,30 +24,55 @@ Cette API fournit un pipeline complet pour l'analyse géologique et environnemen
 | **Environnement** | Glissements de terrain, Inondations, Feux de forêt, Dégâts post-catastrophe |
 | **Sols & Climat** | Occupation des sols (LULC), Cultures, Plans d'eau, Déforestation, Carbone |
 
-## Installation et Lancement
+## Installation et Configuration (Développement)
 
-### Préréglages
+### 1. Environnement Python
 
-1. Authentification Google Earth Engine
-2. Clé API (définie via `API_KEY`)
-
-### Docker
+Le projet est optimisé pour **Python 3.10.13**. Nous utilisons une version légère de PyTorch (CPU) pour économiser de l'espace disque en développement.
 
 ```bash
-docker build -t geocongo-api .
-docker run -p 8080:8080 -e GCP_PROJECT_ID=votre-projet geocongo-api
-```
+# Activation de la version Python correcte (via pyenv)
+pyenv global 3.10.13
 
-### Local
-
-```bash
+# Installation des dépendances avec index CPU optimisé
 pip install -r requirements.txt
-uvicorn app.main:app --reload
 ```
+
+### 2. Authentification Google Earth Engine (Non-interactive)
+
+Pour éviter les blocages de navigateur, le projet utilise un **compte de service**.
+
+1. Placez votre fichier de clé JSON à la racine du projet sous le nom `service-account.json`.
+2. Le fichier est automatiquement ignoré par Git via `.gitignore`.
+3. Assurez-vous que l'e-mail du compte de service est enregistré sur [Earth Engine Register](https://code.earthengine.google.com/register).
+
+### 3. Lancement du Serveur
+
+Le projet se compose de deux modules principaux :
+
+**Module Principal (Gundua AI - Prithvi v2) :**
+
+```bash
+python3 -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+```
+
+**Module HyperSpectral (Analyse PRISMA) :**
+
+```bash
+cd hyperspectral
+python3 main.py
+```
+
+## Nouveautés Récentes
+
+- **Optimisation Ressources** : Passage à `torch+cpu` via `--extra-index-url` dans `requirements.txt`.
+- **Auth Automatisée** : Intégration transparente via compte de service Google Cloud.
+- **Documentation Interactive** : Descriptions enrichies et pédagogiques directement dans Swagger UI (`/docs`).
+- **Module HyperSpectral** : Nouveau module dédié au traitement des données PRISMA L2D (HDF5).
 
 ## API Endpoints
 
-- `GET /analysis-types` : Liste documentée des analyses.
-- `POST /analyze` : Lancer une analyse (nécessite BBOX et `analysis_type`).
-- `GET /results/{request_id}` : Récupérer les résultats et liens de téléchargement.
-- `GET /health` : État du service et du modèle.
+- `GET /` : Message de bienvenue et statut.
+- `GET /health` : État détaillé du service.
+- `GET /docs` : Documentation Swagger complète (recommandé).
+- `POST /analyze` : Orchestration des 15 types d'analyses géospatiales.

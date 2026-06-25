@@ -1,0 +1,14 @@
+# Version légère pour développement (CPU)
+--extra-index-url https://download.pytorch.org/whl/cpu
+torch
+fastapi
+uvicorn
+h5py
+aiofiles
+numpy
+opencv-python-headless
+scikit-learn
+rasterio
+geopandas
+python-multipart
+aiohttp

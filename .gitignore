@@ -8,6 +8,8 @@ venv/
 # Project specific
 models/
 data/
+*.he5
+service-account.json
 *.pt
 *.pth
 *.tif

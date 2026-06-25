@@ -7,18 +7,28 @@ import time
 from typing import List, Tuple
 
 class SatelliteService:
-    def __init__(self, project_id: str = None):
+    def __init__(self, project_id: str = "geocongoai-api"):
+        self.project_id = project_id
         try:
-            if project_id:
-                ee.Initialize(project=project_id)
+            # Recherche de la clé du compte de service
+            key_path = os.path.join(os.getcwd(), "service-account.json")
+            
+            if os.path.exists(key_path):
+                print(f"--- 🔑 Initializing GEE with Service Account: {key_path} ---")
+                from google.oauth2 import service_account
+                
+                credentials = service_account.Credentials.from_service_account_file(
+                    key_path,
+                    scopes=['https://www.googleapis.com/auth/earthengine']
+                )
+                ee.Initialize(credentials=credentials, project=self.project_id)
             else:
-                ee.Initialize()
-        except Exception:
-            try:
-                ee.Authenticate()
-                ee.Initialize()
-            except Exception as e:
-                print(f"FAILED TO INITIALIZE GEE: {e}")
+                print("--- ⚠️ Service account not found, falling back to default auth ---")
+                ee.Initialize(project=self.project_id)
+                
+            print("--- ✅ GEE Initialization Successful ---")
+        except Exception as e:
+            print(f"❌ FAILED TO INITIALIZE GEE: {e}")
 
     async def download_area(self, bbox: List[float], scale: int, output_dir: str, source: str = "S2") -> str:
         """

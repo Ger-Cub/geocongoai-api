@@ -42,10 +42,31 @@ async def lifespan(app: FastAPI):
     yield
     print("--- 🛑 Shutting down ---")
 
+API_DESCRIPTION = """
+**Gundua AI API** est un module d'intelligence artificielle géospatiale de pointe faisant partie de l'écosystème **GeoCongo AI**.
+
+Propulsée par le modèle de fondation **Prithvi EO v2 (HLS/Sentinel-2)**, elle permet de réaliser des diagnostics environnementaux et géologiques complexes avec une précision inégalée.
+
+### Domaines d'Analyse :
+* **Détection Géologique** : Identification d'affleurements, minéralogie d'altération et ciblage minéral.
+* **Surveillance Environnementale** : Détection de la déforestation, feux de forêt et zones d'inondation.
+* **Risques Naturels** : Analyse des glissements de terrain et de l'érosion.
+* **Agriculture & Carbone** : Suivi de la santé des cultures et séquestration carbone.
+
+### Fonctionnement du Pipeline :
+1. **Acquisition** : Téléchargement automatique des scènes Sentinel-2/HLS via Google Earth Engine.
+2. **Inférence** : Extraction des caractéristiques (embeddings) via le modèle Prithvi 300M.
+3. **Analyse Spécialisée** : Exécution de modules dynamiques selon le type de requête.
+4. **Livraison** : Production de rapports GeoTIFF et GeoJSON téléchargeables.
+
+---
+*Gundua AI - Empowering Earth Intelligence for a Sustainable Future.*
+"""
+
 app = FastAPI(
-    title="Gundua AI API (Prithvi EO v2)",
-    description="Interface d'analyse géospatiale avancée propulsée par Gundua AI.",
-    version="2.0.0",
+    title="Gundua AI API 🌍 (Prithvi EO v2)",
+    description=API_DESCRIPTION,
+    version="2.1.0",
     lifespan=lifespan
 )
 
