@@ -9,6 +9,15 @@ Cette API fournit un pipeline complet pour l'analyse géologique et environnemen
 - **Intégration GEE** : Téléchargement automatique des données Sentinel-2 et Landsat 8.
 - **Sorties Multi-formats** : GeoJSON pour les vecteurs, GeoTIFF pour les rasters, et PNG pour la visualisation.
 
+## Stratégie de l'Écosystème GeoCongo AI
+
+L'écosystème repose sur une approche en deux étapes :
+
+1. **Reconnaissance Régionale (ce module)** : Analyse multispectrale Sentinel-2/Prithvi pour le criblage de vastes zones.
+2. **Ciblage de Précision (module HyperSpectral)** : Analyse PRISMA ultra-précise pour la validation minérale finale.
+
+*Voir `ecosystem_manifest.json` et `hyperspectral/module_manifest.json` pour les détails techniques de chaque module.*
+
 ## Structure du Projet
 
 - `app/main.py` : Points d'entrée FastAPI et orchestration.

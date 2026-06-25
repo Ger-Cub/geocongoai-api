@@ -1,0 +1,13 @@
+{
+    "project": "GeoCongo AI Ecosystem",
+    "module": "HyperSpectral Module",
+    "type": "Precision Spectral Targeting",
+    "role": "Ciblage de précision chirurgicale. Analyse les signatures spectrales fines (PRISMA) pour confirmer les anomalies détectées par le module multispectral et cartographier les minéraux d'altération.",
+    "technologies": [
+        "PRISMA L2D Hyperspectral",
+        "SAM (Spectral Angle Mapper)",
+        "1D-CNN"
+    ],
+    "status": "Development/Beta",
+    "parent_ecosystem": "GeoCongo AI"
+}

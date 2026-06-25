@@ -1,0 +1,16 @@
+{
+    "project": "GeoCongo AI Ecosystem",
+    "module": "Gundua AI (Main)",
+    "type": "Multispectral Regional Analysis",
+    "role": "Reconnaissance régionale à grande échelle. Identifie les anomalies et zones d'intérêt sur de vastes territoires pour orienter les phases de ciblage ultérieures.",
+    "technologies": [
+        "Prithvi EO v2 Foundation Model",
+        "Sentinel-2",
+        "Landsat 8"
+    ],
+    "status": "Production-Ready",
+    "integrations": [
+        "Google Earth Engine",
+        "Gundua Cloud Storage"
+    ]
+}

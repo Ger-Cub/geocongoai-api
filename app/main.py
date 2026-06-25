@@ -43,9 +43,9 @@ async def lifespan(app: FastAPI):
     print("--- 🛑 Shutting down ---")
 
 API_DESCRIPTION = """
-**Gundua AI API** est un module d'intelligence artificielle géospatiale de pointe faisant partie de l'écosystème **GeoCongo AI**.
+**Gundua AI API** est le moteur d'**analyse multispectrale** de l'écosystème **GeoCongo AI**. 
 
-Propulsée par le modèle de fondation **Prithvi EO v2 (HLS/Sentinel-2)**, elle permet de réaliser des diagnostics environnementaux et géologiques complexes avec une précision inégalée.
+Ce module assure une **reconnaissance régionale** à grande échelle. En exploitant les données Sentinel-2 et Landsat via le modèle de fondation Prithvi EO v2, il permet d'identifier rapidement les zones d'intérêt géologique et les anomalies environnementales sur de vastes territoires. C'est la première étape cruciale pour le criblage géospatial avant toute intervention de précision.
 
 ### Domaines d'Analyse :
 * **Détection Géologique** : Identification d'affleurements, minéralogie d'altération et ciblage minéral.

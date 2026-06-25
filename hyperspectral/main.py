@@ -11,7 +11,9 @@ from engines.deep_learning import CNN1D
 from utils.hdf5_loader import HDF5Loader
 
 API_DESCRIPTION = """
-**API Module HyperSpectral GeoCongo AI  ** est une plateforme spécialisée dans l'analyse de données satellitaires hyperspectrales PRISMA pour la RDC.
+**HyperSpectral API Module** est l'outil de **ciblage de précision** de l'écosystème **GeoCongo AI**.
+
+Alors que le module multispectral assure la reconnaissance régionale, ce module intervient pour le **ciblage précis**. En analysant des centaines de bandes spectrales (données PRISMA), il permet de valider et d'approfondir les anomalies détectées, offrant une cartographie minérale ultra-détaillée indispensable pour confirmer le potentiel minier d'une zone spécifique.
 
 ### Fonctionnalités clés :
 * **Upload par Morceaux (Chunked Upload)** : Gestion robuste des fichiers HDF5 PRISMA volumineux.
