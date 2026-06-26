@@ -196,7 +196,7 @@ class CacheFileInfo(BaseModel):
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup logic
-    print("🚀 Starting GeoCongo AI API...")
+    print("🚀 Starting Gundua Engine...")
 
     # --- QGIS Initialization (moved here to not block import) ---
     try:
@@ -225,7 +225,7 @@ async def lifespan(app: FastAPI):
         print("QGIS Application exited cleanly.")
 
 app = FastAPI(
-    title="GeoCongo AI API",
+    title="Gundua Engine",
     description="Advanced GeoAI for Geological Analysis in DRC",
     version="1.0.0",
     lifespan=lifespan

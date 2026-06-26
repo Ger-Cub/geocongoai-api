@@ -14,7 +14,7 @@ API_KEY=$(grep "GEOCONGO_API_KEY" env.yaml | cut -d ':' -f 2 | tr -d ' ')
 MODELS_BUCKET=${GCS_BUCKET:-"gundua-ai-models-storage"}
 WORKER_SA_EMAIL="gundua-worker-sa@${PROJECT_ID}.iam.gserviceaccount.com"
 
-echo "🌍 Déploiement Gundua AI API v1"
+echo "🌍 Déploiement Gundua Engine API v1"
 echo "----------------------------------------------------------"
 echo "Project ID: $PROJECT_ID"
 echo "Region:     $REGION"

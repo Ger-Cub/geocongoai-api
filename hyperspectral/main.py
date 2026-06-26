@@ -11,7 +11,7 @@ from engines.deep_learning import CNN1D
 from utils.hdf5_loader import HDF5Loader
 
 API_DESCRIPTION = """
-**HyperSpectral API Module** est l'outil de **ciblage de précision** de l'écosystème **GeoCongo AI**.
+**HyperSpectral Gundua Engine** est l'outil de **ciblage de précision** de l'écosystème **GeoCongo AI**.
 
 Alors que le module multispectral assure la reconnaissance régionale, ce module intervient pour le **ciblage précis**. En analysant des centaines de bandes spectrales (données PRISMA), il permet de valider et d'approfondir les anomalies détectées, offrant une cartographie minérale ultra-détaillée indispensable pour confirmer le potentiel minier d'une zone spécifique.
 
@@ -27,7 +27,7 @@ Alors que le module multispectral assure la reconnaissance régionale, ce module
 """
 
 app = FastAPI(
-    title="API Module HyperSpectral GeoCongo AI  ",
+    title="Gundua Engine HyperSpectralz",
     description=API_DESCRIPTION,
     version="0.1.0"
 )
@@ -35,7 +35,7 @@ app = FastAPI(
 @app.get("/")
 async def root():
     return {
-        "message": "Bienvenue sur API Module HyperSpectral GeoCongo AI  .",
+        "message": "Bienvenue sur Gundua Engine HyperSpectral GeoCongo AI  .",
         "status": "online",
         "documentation": "/docs"
     }

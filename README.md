@@ -1,4 +1,4 @@
-# GeoCongo AI API - Prithvi EO v2
+# Gundua Engine - Prithvi EO v2
 
 Cette API fournit un pipeline complet pour l'analyse géologique et environnementale automatisée en République Démocratique du Congo, basée sur le modèle de fondation NASA-IBM **Prithvi EO v2**.
 
@@ -59,7 +59,7 @@ Pour éviter les blocages de navigateur, le projet utilise un **compte de servic
 
 Le projet se compose de deux modules principaux :
 
-**Module Principal (Gundua AI - Prithvi v2) :**
+**Module Principal (Gundua Engine - Prithvi v2) :**
 
 ```bash
 python3 -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload

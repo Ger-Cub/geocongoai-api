@@ -39,4 +39,3 @@ En raison des restrictions de droits d'accès au système, le projet a été tem
 4. Exporter les résultats en format GeoTIFF pour intégration cartographique.
 
 ---
-*Rapport généré par GeoCongo AI Assistant (Antigravity).*

@@ -1,6 +1,6 @@
-# 🌍 Gundua AI - Guide de Déploiement
+# 🌍 Gundua Engine - Guide de Déploiement
 
-Ce dépôt contient la branche `deploy-gundua-ai` configurée spécifiquement pour le projet **Gundua AI**.
+Ce dépôt contient la branche `deploy-gundua-ai` configurée spécifiquement pour le projet **Gundua Engine**.
 
 ## Configuration Cible
 
@@ -24,7 +24,6 @@ chmod +x scripts/setup_gundua.sh
 Assurez-vous que les modèles suivants sont présents dans votre bucket `gs://gundua-ai-models-storage/` :
 
 - `prithvi/prithvi_model.pt`
-- `sam2/sam2_l.pt`
 
 ### 3. Déploiement
 

@@ -50,7 +50,7 @@ pip install --upgrade pip
 pip install -r "$PROJECT_DIR/requirements.txt"
 
 # 4. Launch
-echo "🚀 Launching GeoCongo AI API..."
+echo "🚀 Launching Gundua Engine..."
 cd "$PROJECT_DIR"
 # Run uvicorn as a module to ensure it uses the venv's interpreter
 python3 -m uvicorn app.main:app --host 0.0.0.0 --port 8080 --reload

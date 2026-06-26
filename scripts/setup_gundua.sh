@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-# Configuration Gundua AI
+# Configuration Gundua Engine
 PROJECT_ID="gundua-ai"
 ACCOUNT="it.servicecemgoma@gmail.com"
 REGION="europe-west4"
@@ -40,7 +40,7 @@ fi
 echo "👤 Création du compte de service $SERVICE_ACCOUNT_NAME..."
 if ! gcloud iam service-accounts describe $SERVICE_ACCOUNT_EMAIL > /dev/null 2>&1; then
     gcloud iam service-accounts create $SERVICE_ACCOUNT_NAME \
-        --display-name="Gundua AI Worker Service Account"
+        --display-name="Gundua Engine Worker Service Account"
     echo "✅ Compte de service créé."
 else
     echo "ℹ️ Le compte de service existe déjà."

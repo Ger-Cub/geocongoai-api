@@ -29,7 +29,7 @@ L'objectif de la journée était d'initialiser le nouveau module HyperSpectral e
 
 ### 4. Documentation & UX Développeur
 
-- **Swagger UI** : Enrichissement des descriptions d'API pour les modules Gundua AI et HyperSpectral, incluant les cas d'usage et les guides de démarrage.
+- **Swagger UI** : Enrichissement des descriptions d'API pour les modules Gundua Engine et HyperSpectral, incluant les cas d'usage et les guides de démarrage.
 - **README.md** : Mise à jour complète des procédures d'installation et de lancement.
 
 ## État Actuel du Projet

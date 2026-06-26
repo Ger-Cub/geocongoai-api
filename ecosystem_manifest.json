@@ -1,6 +1,6 @@
 {
     "project": "GeoCongo AI Ecosystem",
-    "module": "Gundua AI (Main)",
+    "module": "Gundua Engine (Main)",
     "type": "Multispectral Regional Analysis",
     "role": "Reconnaissance régionale à grande échelle. Identifie les anomalies et zones d'intérêt sur de vastes territoires pour orienter les phases de ciblage ultérieures.",
     "technologies": [

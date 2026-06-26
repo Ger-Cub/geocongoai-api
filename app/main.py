@@ -29,7 +29,7 @@ results_db = {}
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global inference_engine
-    print("--- 🚀 Starting Gundua AI API ---")
+    print("--- 🚀 Starting Gundua Engine API ---")
     
     # Sync de modèle depuis GCS si configuré
     model_name = os.getenv("MODEL_NAME", "prithvi_eo_v2_300")
@@ -43,7 +43,7 @@ async def lifespan(app: FastAPI):
     print("--- 🛑 Shutting down ---")
 
 API_DESCRIPTION = """
-**Gundua AI API** est le moteur d'**analyse multispectrale** de l'écosystème **GeoCongo AI**. 
+**Gundua Engine API** est le moteur d'**analyse multispectrale** de l'écosystème **GeoCongo AI**. 
 
 Ce module assure une **reconnaissance régionale** à grande échelle. En exploitant les données Sentinel-2 et Landsat via le modèle de fondation Prithvi EO v2, il permet d'identifier rapidement les zones d'intérêt géologique et les anomalies environnementales sur de vastes territoires. C'est la première étape cruciale pour le criblage géospatial avant toute intervention de précision.
 
@@ -60,11 +60,11 @@ Ce module assure une **reconnaissance régionale** à grande échelle. En exploi
 4. **Livraison** : Production de rapports GeoTIFF et GeoJSON téléchargeables.
 
 ---
-*Gundua AI - Empowering Earth Intelligence for a Sustainable Future.*
+*Gundua Engine - Empowering Earth Intelligence for a Sustainable Future.*
 """
 
 app = FastAPI(
-    title="Gundua AI API 🌍 (Prithvi EO v2)",
+    title="Gundua Engine 🌍 (Prithvi EO v2)",
     description=API_DESCRIPTION,
     version="2.1.0",
     lifespan=lifespan
